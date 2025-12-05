@@ -761,14 +761,22 @@ export class GGClubAdapter extends PlatformAdapter {
         potValue = Math.max(potValue, totalBets);
       }
       
-      // Validation supplémentaire: le pot ne peut pas diminuer
+      // Validation supplémentaire: le pot ne peut pas diminuer sauf nouveau coup
       const lastPot = (this as any).lastKnownPot || 0;
-      if (potValue < lastPot * 0.9) {
-        console.warn(`[GGClubAdapter] Pot incohérent (diminué): ${potValue} vs last ${lastPot}`);
+      const lastStreet = (this as any).lastKnownStreet || "preflop";
+      const communityCards = await this.detectCommunityCards(windowHandle);
+      const currentStreet = this.determineStreet(communityCards.length);
+      
+      // Reset si nouveau coup (retour preflop depuis river/turn/flop)
+      const isNewHand = currentStreet === "preflop" && lastStreet !== "preflop";
+      
+      if (!isNewHand && potValue < lastPot * 0.9) {
+        console.warn(`[GGClubAdapter] Pot incohérent (diminué): ${potValue} vs last ${lastPot}, keeping last value`);
         potValue = lastPot;
       }
       
-      (this as any).lastKnownPot = potValue;
+      (this as any).lastKnownPot = isNewHand ? potValue : Math.max(potValue, lastPot);
+      (this as any).lastKnownStreet = currentStreet;
     }
 
     // Level 4: Si toujours 0, OCR alternatif avec preprocessing différent
@@ -1110,19 +1118,52 @@ export class GGClubAdapter extends PlatformAdapter {
   }
 
   private findRectangles(edges: Uint8Array, searchRegion: ScreenRegion): ScreenRegion[] {
-    // Algorithme simplifié de détection de rectangles
-    // En production, utiliser OpenCV.js ou similaire
     const rectangles: ScreenRegion[] = [];
     const minArea = 2000; // pixels²
+    const maxArea = 10000; // pixels²
     
-    // Placeholder: découpage basique en grille
-    for (let i = 0; i < 4; i++) {
-      rectangles.push({
-        x: searchRegion.x + i * 95,
-        y: searchRegion.y,
-        width: 90,
-        height: 40,
-      });
+    // Analyse par colonnes verticales (les boutons sont alignés horizontalement)
+    const columnWidth = 100;
+    const numColumns = Math.floor(searchRegion.width / columnWidth);
+    
+    for (let col = 0; col < numColumns; col++) {
+      const colX = searchRegion.x + col * columnWidth;
+      
+      // Chercher des régions denses en edges dans cette colonne
+      let edgeCount = 0;
+      for (let y = searchRegion.y; y < searchRegion.y + searchRegion.height; y++) {
+        for (let x = colX; x < colX + columnWidth && x < searchRegion.x + searchRegion.width; x++) {
+          const idx = y * (searchRegion.x + searchRegion.width) + x;
+          if (idx < edges.length && edges[idx] > 128) {
+            edgeCount++;
+          }
+        }
+      }
+      
+      // Si densité suffisante, considérer comme bouton potentiel
+      const area = columnWidth * searchRegion.height;
+      const density = edgeCount / area;
+      
+      if (density > 0.15 && area >= minArea && area <= maxArea) {
+        rectangles.push({
+          x: colX,
+          y: searchRegion.y,
+          width: Math.min(columnWidth, searchRegion.x + searchRegion.width - colX),
+          height: searchRegion.height,
+        });
+      }
+    }
+    
+    // Fallback: découpage basique si aucun rectangle détecté
+    if (rectangles.length === 0) {
+      for (let i = 0; i < 4; i++) {
+        rectangles.push({
+          x: searchRegion.x + i * 95,
+          y: searchRegion.y,
+          width: 90,
+          height: 40,
+        });
+      }
     }
     
     return rectangles;
@@ -1503,13 +1544,16 @@ export class GGClubAdapter extends PlatformAdapter {
             // Essayer de cliquer au centre de la fenêtre comme fallback
             if (attempts === 2) {
               const bounds = targetWindow.getBounds();
-              const centerX = bounds.x + bounds.width / 2;
-              const centerY = bounds.y + bounds.height / 2;
+              const absoluteCenterX = bounds.x + Math.floor(bounds.width / 2);
+              const absoluteCenterY = bounds.y + Math.floor(bounds.height / 2);
+              
+              console.warn(`[GGClubAdapter] Fallback click at screen coords (${absoluteCenterX}, ${absoluteCenterY})`);
               
               if (robot) {
-                robot.moveMouse(centerX, centerY);
+                robot.moveMouse(absoluteCenterX, absoluteCenterY);
                 await this.addRandomDelay(100);
                 robot.mouseClick();
+                await this.addRandomDelay(50);
               }
             }
           }

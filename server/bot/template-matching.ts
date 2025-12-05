@@ -188,18 +188,18 @@ const BUTTON_PATTERNS: Record<string, { colors: { r: number; g: number; b: numbe
 };
 
 function patternToTemplate(pattern: number[][], scale: number = 1): Uint8Array {
-  const height = pattern.length * scale;
-  const width = pattern[0].length * scale;
+  const height = Math.round(pattern.length * scale);
+  const width = Math.round(pattern[0].length * scale);
   const data = new Uint8Array(width * height);
 
-  for (let y = 0; y < pattern.length; y++) {
-    for (let x = 0; x < pattern[y].length; x++) {
-      const value = pattern[y][x] === 1 ? 255 : 0;
-      for (let sy = 0; sy < scale; sy++) {
-        for (let sx = 0; sx < scale; sx++) {
-          const idx = (y * scale + sy) * width + (x * scale + sx);
-          data[idx] = value;
-        }
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const srcY = Math.floor(y / scale);
+      const srcX = Math.floor(x / scale);
+      
+      if (srcY < pattern.length && srcX < pattern[0].length) {
+        const value = pattern[srcY][srcX] === 1 ? 255 : 0;
+        data[y * width + x] = value;
       }
     }
   }
@@ -209,16 +209,20 @@ function patternToTemplate(pattern: number[][], scale: number = 1): Uint8Array {
 
 function generateRankTemplates(): Map<string, Template[]> {
   const templates = new Map<string, Template[]>();
-  const scales = [2, 3, 4, 5];
+  // Ajout de demi-scales pour meilleure couverture
+  const scales = [2, 2.5, 3, 3.5, 4, 4.5, 5];
 
   for (const [rank, pattern] of Object.entries(CARD_RANK_PATTERNS)) {
     const variants: Template[] = [];
     
     for (const scale of scales) {
+      const roundedScale = Math.round(scale);
+      const scaleName = scale % 1 === 0 ? `${scale}` : `${scale}`.replace('.', '_');
+      
       variants.push({
-        name: `${rank}_scale${scale}`,
-        width: pattern[0].length * scale,
-        height: pattern.length * scale,
+        name: `${rank}_scale${scaleName}`,
+        width: Math.round(pattern[0].length * scale),
+        height: Math.round(pattern.length * scale),
         data: patternToTemplate(pattern, scale),
       });
     }
