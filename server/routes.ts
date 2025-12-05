@@ -6,6 +6,7 @@ import { getTableManager, TableEvent, TableState } from "./bot/table-manager";
 import { getGtoAdapter, initializeGtoAdapter } from "./bot/gto-engine";
 import { getHumanizer, updateHumanizerFromConfig } from "./bot/humanizer";
 import { getPlatformManager, getSupportedPlatforms, PlatformManagerConfig } from "./bot/platform-manager";
+import { getTaskScheduler } from "./bot/task-scheduler";
 import { insertHumanizerConfigSchema, insertGtoConfigSchema, insertPlatformConfigSchema } from "@shared/schema";
 import { z } from "zod";
 
@@ -45,7 +46,23 @@ interface WebSocketMessage {
   payload?: any;
 }
 
+interface ConnectedDevice {
+  ws: WebSocket;
+  deviceId: string;
+  deviceType: "desktop" | "tablet" | "mobile" | "unknown";
+  deviceName: string;
+  connectedAt: Date;
+  lastPing: Date;
+}
+
+const connectedDevices: Map<string, ConnectedDevice> = new Map();
 const connectedClients: Set<WebSocket> = new Set();
+
+let autoPlayEnabled = true;
+
+function generateDeviceId(): string {
+  return `device_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
 
 function broadcastToClients(message: WebSocketMessage): void {
   const messageStr = JSON.stringify(message);
@@ -56,6 +73,32 @@ function broadcastToClients(message: WebSocketMessage): void {
   });
 }
 
+function broadcastToDevices(message: WebSocketMessage, excludeDeviceId?: string): void {
+  const messageStr = JSON.stringify(message);
+  connectedDevices.forEach((device, deviceId) => {
+    if (deviceId !== excludeDeviceId && device.ws.readyState === WebSocket.OPEN) {
+      device.ws.send(messageStr);
+    }
+  });
+}
+
+function getConnectedDevicesInfo(): Array<{ deviceId: string; deviceType: string; deviceName: string; connectedAt: string }> {
+  return Array.from(connectedDevices.values()).map(d => ({
+    deviceId: d.deviceId,
+    deviceType: d.deviceType,
+    deviceName: d.deviceName,
+    connectedAt: d.connectedAt.toISOString(),
+  }));
+}
+
+export function getAutoPlayState(): boolean {
+  return autoPlayEnabled;
+}
+
+export function setAutoPlayState(enabled: boolean): void {
+  autoPlayEnabled = enabled;
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -63,29 +106,46 @@ export async function registerRoutes(
 
   const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
 
-  wss.on("connection", (ws) => {
+  wss.on("connection", (ws, req) => {
     connectedClients.add(ws);
-    console.log("Client WebSocket connecté");
+    
+    const tempDeviceId = generateDeviceId();
+    let currentDeviceId = tempDeviceId;
+    
+    console.log(`Client WebSocket connecté (temp: ${tempDeviceId})`);
+
+    const tableManager = getTableManager();
+    const platformManager = getPlatformManager();
 
     ws.send(JSON.stringify({
       type: "connected",
-      payload: { message: "Connexion établie au serveur GTO Bot" }
+      payload: { 
+        message: "Connexion établie au serveur GTO Bot",
+        tempDeviceId,
+        autoPlayEnabled,
+        connectedDevices: getConnectedDevicesInfo(),
+      }
     }));
 
-    const tableManager = getTableManager();
     ws.send(JSON.stringify({
       type: "initial_state",
       payload: {
         tables: tableManager.getAllTableStates(),
         stats: tableManager.getStats(),
         humanizerSettings: getHumanizer().getSettings(),
+        autoPlayEnabled,
+        platformStatus: platformManager.getStatus(),
+        connectedDevices: getConnectedDevicesInfo(),
       }
     }));
 
     ws.on("message", async (data) => {
       try {
         const message = JSON.parse(data.toString()) as WebSocketMessage;
-        await handleWebSocketMessage(ws, message);
+        const result = await handleWebSocketMessage(ws, message, currentDeviceId);
+        if (result?.newDeviceId) {
+          currentDeviceId = result.newDeviceId;
+        }
       } catch (error) {
         console.error("Erreur WebSocket:", error);
         ws.send(JSON.stringify({ type: "error", payload: { message: "Message invalide" } }));
@@ -94,7 +154,22 @@ export async function registerRoutes(
 
     ws.on("close", () => {
       connectedClients.delete(ws);
-      console.log("Client WebSocket déconnecté");
+      
+      if (connectedDevices.has(currentDeviceId)) {
+        const device = connectedDevices.get(currentDeviceId);
+        connectedDevices.delete(currentDeviceId);
+        console.log(`Device déconnecté: ${device?.deviceName} (${currentDeviceId})`);
+        
+        broadcastToClients({
+          type: "device_disconnected",
+          payload: { 
+            deviceId: currentDeviceId,
+            connectedDevices: getConnectedDevicesInfo(),
+          }
+        });
+      } else {
+        console.log("Client WebSocket déconnecté");
+      }
     });
   });
 
@@ -913,16 +988,165 @@ export async function registerRoutes(
     }
   });
 
+  // OCR Error Correction Stats
+  app.get("/api/ocr-correction/stats", (_req, res) => {
+    try {
+      const { ocrErrorCorrector } = require("./bot/ocr-error-correction");
+      const stats = ocrErrorCorrector.getStats();
+      res.json(stats);
+    } catch (error) {
+      console.error("Error getting OCR correction stats:", error);
+      res.status(500).json({ error: "Failed to get OCR correction stats" });
+    }
+  });
+
+  // ===== REMOTE CONTROL API FOR MULTI-DEVICE SYNC =====
+  
+  app.get("/api/remote/status", async (_req, res) => {
+    try {
+      const session = await storage.getActiveBotSession();
+      const stats = tableManager.getStats();
+      const platformManager = getPlatformManager();
+      
+      res.json({
+        session: session ? {
+          id: session.id,
+          status: session.status,
+          startedAt: session.startedAt,
+        } : null,
+        stats,
+        autoPlayEnabled,
+        platformStatus: platformManager.getStatus(),
+        connectedDevices: getConnectedDevicesInfo(),
+        timestamp: Date.now(),
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/remote/auto-play", async (req, res) => {
+    try {
+      const { enabled } = req.body;
+      const previousState = autoPlayEnabled;
+      
+      if (typeof enabled === "boolean") {
+        autoPlayEnabled = enabled;
+      } else {
+        autoPlayEnabled = !autoPlayEnabled;
+      }
+      
+      const platformManager = getPlatformManager();
+      
+      if (autoPlayEnabled !== previousState) {
+        try {
+          if (autoPlayEnabled) {
+            await platformManager.resume();
+          } else {
+            await platformManager.pause();
+          }
+        } catch (error) {
+          console.error("Erreur changement auto-play:", error);
+        }
+      }
+      
+      broadcastToClients({
+        type: "auto_play_changed",
+        payload: {
+          enabled: autoPlayEnabled,
+          changedBy: "api",
+          timestamp: Date.now(),
+        }
+      });
+      
+      res.json({
+        success: true,
+        autoPlayEnabled,
+        platformStatus: platformManager.getStatus(),
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/remote/devices", async (_req, res) => {
+    try {
+      res.json({
+        devices: getConnectedDevicesInfo(),
+        count: connectedDevices.size,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/remote/logs", async (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 50;
+      const logs = await storage.getRecentActionLogs(limit);
+      res.json({ logs });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   return httpServer;
 }
 
-async function handleWebSocketMessage(ws: WebSocket, message: WebSocketMessage): Promise<void> {
+async function handleWebSocketMessage(
+  ws: WebSocket, 
+  message: WebSocketMessage, 
+  currentDeviceId: string
+): Promise<{ newDeviceId?: string } | void> {
   const tableManager = getTableManager();
+  const platformManager = getPlatformManager();
 
   switch (message.type) {
     case "ping":
+      if (connectedDevices.has(currentDeviceId)) {
+        const device = connectedDevices.get(currentDeviceId)!;
+        device.lastPing = new Date();
+      }
       ws.send(JSON.stringify({ type: "pong", payload: { timestamp: Date.now() } }));
       break;
+
+    case "device_register": {
+      const { deviceType, deviceName } = message.payload || {};
+      const deviceId = message.payload?.deviceId || currentDeviceId;
+      
+      const device: ConnectedDevice = {
+        ws,
+        deviceId,
+        deviceType: deviceType || "unknown",
+        deviceName: deviceName || `Device ${deviceId.slice(-6)}`,
+        connectedAt: new Date(),
+        lastPing: new Date(),
+      };
+      
+      connectedDevices.set(deviceId, device);
+      console.log(`Device enregistré: ${device.deviceName} (${deviceType}) - ${deviceId}`);
+      
+      ws.send(JSON.stringify({
+        type: "device_registered",
+        payload: {
+          deviceId,
+          deviceType: device.deviceType,
+          deviceName: device.deviceName,
+        }
+      }));
+      
+      broadcastToDevices({
+        type: "device_connected",
+        payload: {
+          deviceId,
+          deviceType: device.deviceType,
+          deviceName: device.deviceName,
+          connectedDevices: getConnectedDevicesInfo(),
+        }
+      }, deviceId);
+      
+      return { newDeviceId: deviceId };
+    }
 
     case "get_state":
       ws.send(JSON.stringify({
@@ -931,6 +1155,98 @@ async function handleWebSocketMessage(ws: WebSocket, message: WebSocketMessage):
           tables: tableManager.getAllTableStates(),
           stats: tableManager.getStats(),
           humanizerSettings: getHumanizer().getSettings(),
+          autoPlayEnabled,
+          platformStatus: platformManager.getStatus(),
+          connectedDevices: getConnectedDevicesInfo(),
+        }
+      }));
+      break;
+
+    case "toggle_auto_play": {
+      const newState = message.payload?.enabled;
+      const previousState = autoPlayEnabled;
+      
+      if (typeof newState === "boolean") {
+        autoPlayEnabled = newState;
+      } else {
+        autoPlayEnabled = !autoPlayEnabled;
+      }
+      
+      console.log(`Auto-play ${autoPlayEnabled ? "activé" : "désactivé"} par ${currentDeviceId}`);
+      
+      if (autoPlayEnabled !== previousState) {
+        try {
+          if (autoPlayEnabled) {
+            await platformManager.resume();
+          } else {
+            await platformManager.pause();
+          }
+        } catch (error) {
+          console.error("Erreur changement auto-play:", error);
+        }
+      }
+      
+      broadcastToClients({
+        type: "auto_play_changed",
+        payload: {
+          enabled: autoPlayEnabled,
+          changedBy: currentDeviceId,
+          timestamp: Date.now(),
+        }
+      });
+      
+      break;
+    }
+
+    case "request_logs": {
+      const limit = message.payload?.limit || 50;
+      try {
+        const logs = await storage.getRecentActionLogs(limit);
+        ws.send(JSON.stringify({
+          type: "logs_response",
+          payload: { logs }
+        }));
+      } catch (error) {
+        ws.send(JSON.stringify({
+          type: "error",
+          payload: { message: "Erreur récupération logs" }
+        }));
+      }
+      break;
+    }
+
+    case "request_session_state": {
+      try {
+        const session = await storage.getActiveBotSession();
+        const stats = tableManager.getStats();
+        const tables = tableManager.getAllTableStates();
+        
+        ws.send(JSON.stringify({
+          type: "session_state",
+          payload: {
+            session,
+            stats,
+            tables,
+            autoPlayEnabled,
+            platformStatus: platformManager.getStatus(),
+            connectedDevices: getConnectedDevicesInfo(),
+          }
+        }));
+      } catch (error) {
+        ws.send(JSON.stringify({
+          type: "error",
+          payload: { message: "Erreur récupération session" }
+        }));
+      }
+      break;
+    }
+
+    case "get_devices":
+      ws.send(JSON.stringify({
+        type: "devices_list",
+        payload: {
+          devices: getConnectedDevicesInfo(),
+          count: connectedDevices.size,
         }
       }));
       break;
@@ -945,16 +1261,3 @@ async function handleWebSocketMessage(ws: WebSocket, message: WebSocketMessage):
       ws.send(JSON.stringify({ type: "error", payload: { message: `Type de message inconnu: ${message.type}` } }));
   }
 }
-
-
-// OCR Error Correction Stats
-app.get("/api/ocr-correction/stats", (_req, res) => {
-  try {
-    const { ocrErrorCorrector } = require("./bot/ocr-error-correction");
-    const stats = ocrErrorCorrector.getStats();
-    res.json(stats);
-  } catch (error) {
-    console.error("Error getting OCR correction stats:", error);
-    res.status(500).json({ error: "Failed to get OCR correction stats" });
-  }
-});
