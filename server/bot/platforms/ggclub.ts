@@ -1514,6 +1514,17 @@ class AntiDetectionMonitor {
       misclickProbability: suspicionLevel > 0.7 ? 0.001 : currentSettings.misclickProbability,
     });
 
+    // AJOUT : Randomiser les décisions GTO pour casser les patterns
+    const gtoAdapter = (this.adapter as any).gtoAdapter;
+    if (gtoAdapter && suspicionLevel > 0.6) {
+      // Injecter du "noise" dans les fréquences d'action
+      const noiseLevel = (suspicionLevel - 0.6) * 0.25; // 0 à 10% de bruit
+      console.warn(`[Anti-Detection] Injecting ${(noiseLevel * 100).toFixed(1)}% GTO noise`);
+      
+      // Le bruit sera appliqué lors du prochain getRecommendation()
+      (gtoAdapter as any).injectedNoise = noiseLevel;
+    }
+
     console.warn(`[Anti-Detection] Emergency randomization applied (${Math.round(suspicionLevel * 100)}%)`);
   }
 

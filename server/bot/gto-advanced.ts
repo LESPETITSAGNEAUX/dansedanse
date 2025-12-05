@@ -883,9 +883,11 @@ export class AdvancedGtoAdapter implements GtoAdapter {
   private bluffingManager: BluffingManager;
   private debugMode = false;
   private currentVillainId: string = "villain_0";
+  public injectedNoise: number = 0; // Bruit injecté par anti-detection (0-1)
 
   constructor() {
-    this.equityCalculator = new MonteCarloEquityCalculator(5000);
+    // Adapter le nombre de simulations selon le contexte
+    this.equityCalculator = new MonteCarloEquityCalculator(3000); // Réduit de 5000 à 3000
     this.playerProfiler = new PlayerProfiler();
     this.rangeConstructor = new RangeConstructor();
     this.bluffingManager = new BluffingManager();
@@ -981,6 +983,23 @@ export class AdvancedGtoAdapter implements GtoAdapter {
     }
 
     actions.sort((a, b) => b.probability - a.probability);
+    
+    // Appliquer bruit si demandé par anti-detection
+    if (this.injectedNoise > 0) {
+      actions.forEach(action => {
+        const noise = (Math.random() - 0.5) * this.injectedNoise * 2;
+        action.probability = Math.max(0.05, Math.min(0.95, action.probability + noise));
+      });
+      
+      // Renormaliser
+      const total = actions.reduce((sum, a) => sum + a.probability, 0);
+      actions.forEach(a => a.probability /= total);
+      actions.sort((a, b) => b.probability - a.probability);
+      
+      // Réduire progressivement le bruit
+      this.injectedNoise *= 0.9;
+    }
+    
     const bestAction = actions[0]?.action || "FOLD";
 
     return {
@@ -995,7 +1014,12 @@ export class AdvancedGtoAdapter implements GtoAdapter {
     villainProfile: PlayerProfile,
     exploit: { adjustment: string; factor: number }
   ): GtoRecommendation {
-    const equity = this.equityCalculator.calculateEquityVsRandomHand(
+    // Ajuster précision selon street (river = moins de runouts possibles)
+    const simulations = context.street === "river" ? 1000 : 
+                       context.street === "turn" ? 2000 : 3000;
+    
+    const tempCalculator = new MonteCarloEquityCalculator(simulations);
+    const equity = tempCalculator.calculateEquityVsRandomHand(
       context.heroCards,
       context.communityCards
     );
