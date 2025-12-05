@@ -15,6 +15,7 @@ import { getTableManager, TableSession, TableState } from "./table-manager";
 import { getHumanizer, HumanizedAction } from "./humanizer";
 import { getGtoAdapter, HandContext } from "./gto-engine";
 import { storage } from "../storage";
+import { getTaskScheduler } from "./task-scheduler";
 
 export interface PlatformManagerConfig {
   platformName: string;
@@ -51,10 +52,8 @@ export class PlatformManager extends EventEmitter {
   private config: PlatformManagerConfig | null = null;
   private status: PlatformManagerStatus = "idle";
   private managedTables: Map<number, ManagedTable> = new Map();
-  private gameStatePollingInterval?: NodeJS.Timeout;
-  private windowScanInterval?: NodeJS.Timeout;
-  private actionProcessingInterval?: NodeJS.Timeout;
   private isProcessing: boolean = false;
+  private schedulerStarted: boolean = false;
 
   constructor() {
     super();
@@ -323,24 +322,62 @@ export class PlatformManager extends EventEmitter {
   private startPolling(): void {
     if (!this.adapter || !this.config) return;
 
-    this.windowScanInterval = setInterval(async () => {
-      await this.scanForNewTables();
-    }, 5000);
+    const scheduler = getTaskScheduler();
 
-    this.gameStatePollingInterval = setInterval(async () => {
-      await this.pollAllGameStatesThrottled();
-    }, this.config.scanIntervalMs);
+    // Tâche 1: Scan des nouvelles tables (priorité normale, toutes les 5s)
+    scheduler.addTask({
+      id: "window_scan",
+      name: "Scan Table Windows",
+      priority: "normal",
+      intervalMs: 5000,
+      run: async () => {
+        await this.scanForNewTables();
+      },
+    });
 
-    this.actionProcessingInterval = setInterval(async () => {
-      await this.processActionQueues();
-    }, 50);
-    
-    // Health check périodique
-    setInterval(async () => {
-      const tableManager = getTableManager();
-      await tableManager.performHealthCheck();
-      await tableManager.recoverErrorTables();
-    }, 30000);
+    // Tâche 2: Polling game states (priorité haute, configurable)
+    scheduler.addTask({
+      id: "game_state_poll",
+      name: "Poll Game States",
+      priority: "high",
+      intervalMs: this.config.scanIntervalMs,
+      run: async () => {
+        await this.pollAllGameStatesThrottled();
+      },
+    });
+
+    // Tâche 3: Processing action queues (priorité critique, 50ms)
+    scheduler.addTask({
+      id: "action_processing",
+      name: "Process Action Queues",
+      priority: "critical",
+      intervalMs: 50,
+      run: async () => {
+        await this.processActionQueues();
+      },
+    });
+
+    // Tâche 4: Health check (priorité background, 30s)
+    scheduler.addTask({
+      id: "health_check",
+      name: "Table Health Check",
+      priority: "background",
+      intervalMs: 30000,
+      run: async () => {
+        const tableManager = getTableManager();
+        await tableManager.performHealthCheck();
+        await tableManager.recoverErrorTables();
+      },
+    });
+
+    // Démarrer l'event loop si pas déjà fait
+    if (!this.schedulerStarted) {
+      this.schedulerStarted = true;
+      scheduler.start().catch(error => {
+        console.error("Task scheduler error:", error);
+        this.schedulerStarted = false;
+      });
+    }
   }
   
   private async pollAllGameStatesThrottled(): Promise<void> {
@@ -384,18 +421,14 @@ export class PlatformManager extends EventEmitter {
   }
 
   private stopPolling(): void {
-    if (this.windowScanInterval) {
-      clearInterval(this.windowScanInterval);
-      this.windowScanInterval = undefined;
-    }
-    if (this.gameStatePollingInterval) {
-      clearInterval(this.gameStatePollingInterval);
-      this.gameStatePollingInterval = undefined;
-    }
-    if (this.actionProcessingInterval) {
-      clearInterval(this.actionProcessingInterval);
-      this.actionProcessingInterval = undefined;
-    }
+    const scheduler = getTaskScheduler();
+    
+    // Désactiver les tâches mais ne pas arrêter le scheduler
+    // (il peut être utilisé par d'autres composants)
+    scheduler.disableTask("window_scan");
+    scheduler.disableTask("game_state_poll");
+    scheduler.disableTask("action_processing");
+    scheduler.disableTask("health_check");
   }
 
   private async scanForNewTables(): Promise<void> {
@@ -632,6 +665,25 @@ export class PlatformManager extends EventEmitter {
 
   updateAntiDetectionConfig(config: Partial<any>): void {
     this.adapter?.updateAntiDetectionConfig(config);
+  }
+
+  getSchedulerStats(): any {
+    const scheduler = getTaskScheduler();
+    return {
+      system: scheduler.getSystemStats(),
+      tasks: scheduler.getAllTasks().map(t => ({
+        id: t.id,
+        name: t.name,
+        priority: t.priority,
+        enabled: t.enabled,
+        isRunning: t.isRunning,
+        runCount: t.runCount,
+        errorCount: t.errorCount,
+        avgExecutionTime: Math.round(t.avgExecutionTime),
+        maxExecutionTime: t.maxExecutionTime,
+        nextRunIn: Math.max(0, t.nextRunTime - Date.now()),
+      })),
+    };
   }
 }
 

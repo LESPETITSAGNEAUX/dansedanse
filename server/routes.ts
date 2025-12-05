@@ -497,6 +497,20 @@ export async function registerRoutes(
       });
       
       broadcastToClients({
+
+
+  // Route pour stats du Task Scheduler
+  app.get("/api/platform/scheduler-stats", async (req, res) => {
+    try {
+      const platformManager = getPlatformManager();
+      const stats = platformManager.getSchedulerStats();
+      
+      res.json(stats);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
         type: "platform_disconnected",
         payload: { status: "disconnected" }
       });
