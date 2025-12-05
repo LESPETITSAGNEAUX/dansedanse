@@ -130,33 +130,64 @@ export class SimulatedGtoAdapter implements GtoAdapter {
     const handStrength = getHandStrength(context.heroCards);
     const boardTexture = evaluateBoardTexture(context.communityCards);
     
-    return this.generateRecommendation(context, handStrength, boardTexture);
+    // Récupérer les modifiers du profil dynamique
+    let modifiers = {
+      aggressionShift: 0,
+      rangeWidening: 1,
+      sizingVariance: 1,
+    };
+
+    try {
+      const { getPlayerProfile } = await import("./player-profile");
+      const profile = getPlayerProfile();
+      const profileModifiers = profile.getModifiers();
+      modifiers = {
+        aggressionShift: profileModifiers.aggressionShift,
+        rangeWidening: profileModifiers.rangeWidening,
+        sizingVariance: profileModifiers.sizingVariance,
+      };
+    } catch (error) {
+      // Utiliser les valeurs par défaut si le profil n'est pas disponible
+    }
+    
+    return this.generateRecommendation(context, handStrength, boardTexture, modifiers);
   }
   
   private generateRecommendation(
     context: HandContext,
     handStrength: number,
-    boardTexture: ReturnType<typeof evaluateBoardTexture>
+    boardTexture: ReturnType<typeof evaluateBoardTexture>,
+    modifiers: { aggressionShift: number; rangeWidening: number; sizingVariance: number } = { aggressionShift: 0, rangeWidening: 1, sizingVariance: 1 }
   ): GtoRecommendation {
     const { street, facingBet, potSize, isInPosition, numPlayers } = context;
     
+    // Ajuster la force de main selon rangeWidening (tilt = joue plus large)
+    const adjustedStrength = handStrength * modifiers.rangeWidening;
+    
     if (street === "preflop") {
-      return this.getPreflopRecommendation(context, handStrength);
+      return this.getPreflopRecommendation(context, adjustedStrength, modifiers);
     }
     
-    return this.getPostflopRecommendation(context, handStrength, boardTexture);
+    return this.getPostflopRecommendation(context, adjustedStrength, boardTexture, modifiers);
   }
   
-  private getPreflopRecommendation(context: HandContext, handStrength: number): GtoRecommendation {
+  private getPreflopRecommendation(
+    context: HandContext, 
+    handStrength: number,
+    modifiers: { aggressionShift: number; rangeWidening: number; sizingVariance: number } = { aggressionShift: 0, rangeWidening: 1, sizingVariance: 1 }
+  ): GtoRecommendation {
     const { facingBet, potSize, heroPosition } = context;
     const isRfi = facingBet === 0 || facingBet <= 1;
+    
+    // Appliquer aggressionShift (tilt = plus agressif)
+    const aggBonus = modifiers.aggressionShift;
     
     if (isRfi) {
       if (handStrength >= 0.85) {
         return {
           actions: [
-            { action: "RAISE", probability: 0.95, ev: 0.45 },
-            { action: "CALL", probability: 0.05, ev: 0.20 },
+            { action: "RAISE", probability: Math.min(0.98, 0.95 + aggBonus * 0.3), ev: 0.45 },
+            { action: "CALL", probability: Math.max(0.02, 0.05 - aggBonus * 0.3), ev: 0.20 },
           ],
           bestAction: "RAISE",
           confidence: 0.95,
@@ -164,8 +195,8 @@ export class SimulatedGtoAdapter implements GtoAdapter {
       } else if (handStrength >= 0.6) {
         return {
           actions: [
-            { action: "RAISE", probability: 0.70, ev: 0.25 },
-            { action: "FOLD", probability: 0.25, ev: 0 },
+            { action: "RAISE", probability: Math.min(0.90, 0.70 + aggBonus * 0.4), ev: 0.25 },
+            { action: "FOLD", probability: Math.max(0.05, 0.25 - aggBonus * 0.3), ev: 0 },
             { action: "CALL", probability: 0.05, ev: 0.10 },
           ],
           bestAction: "RAISE",
@@ -227,21 +258,25 @@ export class SimulatedGtoAdapter implements GtoAdapter {
   private getPostflopRecommendation(
     context: HandContext,
     handStrength: number,
-    boardTexture: ReturnType<typeof evaluateBoardTexture>
+    boardTexture: ReturnType<typeof evaluateBoardTexture>,
+    modifiers: { aggressionShift: number; rangeWidening: number; sizingVariance: number } = { aggressionShift: 0, rangeWidening: 1, sizingVariance: 1 }
   ): GtoRecommendation {
     const { facingBet, potSize, isInPosition } = context;
     const positionBonus = isInPosition ? 0.1 : 0;
     const adjustedStrength = handStrength + positionBonus;
     
     const dangerousBoard = boardTexture.isFlushDraw || boardTexture.isStraightDraw;
+    const aggBonus = modifiers.aggressionShift;
     
     if (facingBet === 0) {
       if (adjustedStrength >= 0.75) {
-        const betSize = dangerousBoard ? 0.75 : 0.33;
+        const baseBetSize = dangerousBoard ? 0.75 : 0.33;
+        // Appliquer sizingVariance (tilt = sizing plus erratique)
+        const betSize = baseBetSize * modifiers.sizingVariance;
         return {
           actions: [
-            { action: `BET ${Math.round(betSize * 100)}%`, probability: 0.65, ev: 0.35 },
-            { action: "CHECK", probability: 0.35, ev: 0.20 },
+            { action: `BET ${Math.round(betSize * 100)}%`, probability: Math.min(0.90, 0.65 + aggBonus * 0.5), ev: 0.35 },
+            { action: "CHECK", probability: Math.max(0.10, 0.35 - aggBonus * 0.5), ev: 0.20 },
           ],
           bestAction: `BET ${Math.round(betSize * 100)}%`,
           confidence: 0.85,

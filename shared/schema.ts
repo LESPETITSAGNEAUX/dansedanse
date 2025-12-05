@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, real, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, boolean, real, timestamp, jsonb, serial } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -53,8 +53,7 @@ export type InsertPokerTable = z.infer<typeof insertPokerTableSchema>;
 export type PokerTable = typeof pokerTables.$inferSelect;
 
 export const handHistories = pgTable("hand_histories", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  tableId: varchar("table_id").references(() => pokerTables.id),
+  id: serial("id").primaryKey(),
   sessionId: varchar("session_id").references(() => botSessions.id),
   handNumber: text("hand_number").notNull(),
   heroCards: text("hero_cards").array(),
@@ -149,6 +148,24 @@ export const botStats = pgTable("bot_stats", {
 export const insertBotStatsSchema = createInsertSchema(botStats).omit({ id: true, updatedAt: true });
 export type InsertBotStats = z.infer<typeof insertBotStatsSchema>;
 export type BotStats = typeof botStats.$inferSelect;
+
+export const playerProfileState = pgTable("player_profile_state", {
+  id: serial("id").primaryKey(),
+  personality: text("personality").notNull().default("balanced"),
+  tiltLevel: real("tilt_level").notNull().default(0),
+  fatigueLevel: real("fatigue_level").notNull().default(0),
+  sessionDuration: real("session_duration").notNull().default(0),
+  recentBadBeats: integer("recent_bad_beats").notNull().default(0),
+  consecutiveLosses: integer("consecutive_losses").notNull().default(0),
+  consecutiveWins: integer("consecutive_wins").notNull().default(0),
+  lastBigWin: real("last_big_win").notNull().default(0),
+  lastBigLoss: real("last_big_loss").notNull().default(0),
+  sessionStartTime: timestamp("session_start_time").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type PlayerProfileState = typeof playerProfileState.$inferSelect;
+export type InsertPlayerProfileState = typeof playerProfileState.$inferInsert;
 
 export const gtoRecommendationSchema = z.object({
   actions: z.array(z.object({

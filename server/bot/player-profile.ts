@@ -328,6 +328,44 @@ export class PlayerProfile extends EventEmitter {
     this.actionHistory = [];
     
     this.emit("profileReset");
+    this.persistState();
+  }
+
+  private async persistState(): Promise<void> {
+    try {
+      const { storage } = await import("../storage");
+      await storage.updatePlayerProfileState(this.state);
+    } catch (error) {
+      console.error("Erreur persistance profil:", error);
+    }
+  }
+
+  async restoreState(): Promise<void> {
+    try {
+      const { storage } = await import("../storage");
+      const saved = await storage.getPlayerProfileState();
+      
+      if (saved) {
+        this.state.personality = saved.personality as PlayerPersonality;
+        this.state.tiltLevel = saved.tiltLevel;
+        this.state.fatigueLevel = saved.fatigueLevel;
+        this.state.sessionDuration = saved.sessionDuration;
+        this.state.recentBadBeats = saved.recentBadBeats;
+        this.state.consecutiveLosses = saved.consecutiveLosses;
+        this.state.consecutiveWins = saved.consecutiveWins;
+        this.state.lastBigWin = saved.lastBigWin;
+        this.state.lastBigLoss = saved.lastBigLoss;
+        
+        if (saved.sessionStartTime) {
+          this.sessionStartTime = new Date(saved.sessionStartTime).getTime();
+        }
+        
+        this.updatePersonality(this.state.personality);
+        this.emit("profileRestored", { state: this.state });
+      }
+    } catch (error) {
+      console.error("Erreur restauration profil:", error);
+    }
   }
 }
 
@@ -343,4 +381,8 @@ export function setPlayerProfile(profile: PlayerProfile): void {
 
 export function resetPlayerProfile(personality?: PlayerPersonality): void {
   globalPlayerProfile = new PlayerProfile(personality);
+}
+
+export async function initializePlayerProfile(): Promise<void> {
+  await globalPlayerProfile.restoreState();
 }

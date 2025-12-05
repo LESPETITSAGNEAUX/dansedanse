@@ -730,6 +730,58 @@ export async function registerRoutes(
     }
   });
 
+  // Player Profile Routes
+  app.get("/api/player-profile", async (req, res) => {
+    try {
+      const { getPlayerProfile } = await import("./bot/player-profile");
+      const profile = getPlayerProfile();
+      
+      res.json({
+        state: profile.getState(),
+        config: profile.getConfig(),
+        modifiers: profile.getModifiers(),
+      });
+    } catch (error) {
+      console.error("Error getting player profile:", error);
+      res.status(500).json({ error: "Failed to get player profile" });
+    }
+  });
+
+  app.post("/api/player-profile/personality", async (req, res) => {
+    try {
+      const { personality } = req.body;
+      const { getPlayerProfile } = await import("./bot/player-profile");
+      const profile = getPlayerProfile();
+      
+      profile.updatePersonality(personality);
+      
+      res.json({
+        state: profile.getState(),
+        config: profile.getConfig(),
+      });
+    } catch (error) {
+      console.error("Error updating personality:", error);
+      res.status(500).json({ error: "Failed to update personality" });
+    }
+  });
+
+  app.post("/api/player-profile/reset", async (req, res) => {
+    try {
+      const { getPlayerProfile } = await import("./bot/player-profile");
+      const profile = getPlayerProfile();
+      
+      profile.reset();
+      
+      res.json({
+        state: profile.getState(),
+        message: "Profile reset successfully",
+      });
+    } catch (error) {
+      console.error("Error resetting profile:", error);
+      res.status(500).json({ error: "Failed to reset profile" });
+    }
+  });
+
   return httpServer;
 }
 
@@ -762,57 +814,3 @@ async function handleWebSocketMessage(ws: WebSocket, message: WebSocketMessage):
       ws.send(JSON.stringify({ type: "error", payload: { message: `Type de message inconnu: ${message.type}` } }));
   }
 }
-
-
-
-// Player Profile Routes
-app.get("/api/player-profile", async (req, res) => {
-  try {
-    const { getPlayerProfile } = await import("./bot/player-profile");
-    const profile = getPlayerProfile();
-    
-    res.json({
-      state: profile.getState(),
-      config: profile.getConfig(),
-      modifiers: profile.getModifiers(),
-    });
-  } catch (error) {
-    console.error("Error getting player profile:", error);
-    res.status(500).json({ error: "Failed to get player profile" });
-  }
-});
-
-app.post("/api/player-profile/personality", async (req, res) => {
-  try {
-    const { personality } = req.body;
-    const { getPlayerProfile } = await import("./bot/player-profile");
-    const profile = getPlayerProfile();
-    
-    profile.updatePersonality(personality);
-    
-    res.json({
-      state: profile.getState(),
-      config: profile.getConfig(),
-    });
-  } catch (error) {
-    console.error("Error updating personality:", error);
-    res.status(500).json({ error: "Failed to update personality" });
-  }
-});
-
-app.post("/api/player-profile/reset", async (req, res) => {
-  try {
-    const { getPlayerProfile } = await import("./bot/player-profile");
-    const profile = getPlayerProfile();
-    
-    profile.reset();
-    
-    res.json({
-      state: profile.getState(),
-      message: "Profile reset successfully",
-    });
-  } catch (error) {
-    console.error("Error resetting profile:", error);
-    res.status(500).json({ error: "Failed to reset profile" });
-  }
-});

@@ -1,4 +1,4 @@
-import { 
+import {
   type User, type InsertUser,
   type BotSession, type InsertBotSession,
   type PokerTable, type InsertPokerTable,
@@ -25,144 +25,205 @@ export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
-  
+
   createBotSession(session: InsertBotSession): Promise<BotSession>;
   getBotSession(id: string): Promise<BotSession | undefined>;
   getActiveBotSession(): Promise<BotSession | undefined>;
   updateBotSession(id: string, updates: Partial<BotSession>): Promise<BotSession | undefined>;
   getAllBotSessions(): Promise<BotSession[]>;
-  
+
   createPokerTable(table: InsertPokerTable): Promise<PokerTable>;
   getPokerTable(id: string): Promise<PokerTable | undefined>;
   getTablesBySession(sessionId: string): Promise<PokerTable[]>;
   updatePokerTable(id: string, updates: Partial<PokerTable>): Promise<PokerTable | undefined>;
   deletePokerTable(id: string): Promise<void>;
-  
+
   createHandHistory(hand: InsertHandHistory): Promise<HandHistory>;
   getHandHistoriesBySession(sessionId: string): Promise<HandHistory[]>;
   getHandHistoriesByTable(tableId: string): Promise<HandHistory[]>;
   getRecentHandHistories(limit: number): Promise<HandHistory[]>;
-  
+
   getHumanizerConfig(): Promise<HumanizerConfig | undefined>;
   updateHumanizerConfig(updates: Partial<HumanizerConfig>): Promise<HumanizerConfig>;
   createDefaultHumanizerConfig(): Promise<HumanizerConfig>;
-  
+
   getGtoConfig(): Promise<GtoConfig | undefined>;
   updateGtoConfig(updates: Partial<GtoConfig>): Promise<GtoConfig>;
   createDefaultGtoConfig(): Promise<GtoConfig>;
-  
+
   getPlatformConfig(): Promise<PlatformConfig | undefined>;
   updatePlatformConfig(updates: Partial<PlatformConfig>): Promise<PlatformConfig>;
   createPlatformConfig(config: InsertPlatformConfig): Promise<PlatformConfig>;
-  
+
   createActionLog(log: InsertActionLog): Promise<ActionLog>;
   getActionLogsBySession(sessionId: string): Promise<ActionLog[]>;
   getRecentActionLogs(limit: number): Promise<ActionLog[]>;
-  
+
   getBotStats(sessionId: string): Promise<BotStats | undefined>;
   updateBotStats(sessionId: string, updates: Partial<BotStats>): Promise<BotStats>;
   createBotStats(stats: InsertBotStats): Promise<BotStats>;
+
+  getPlayerProfileState(): Promise<any>;
+  savePlayerProfileState(state: any): Promise<any>;
+  updatePlayerProfileState(state: any): Promise<any>;
 }
 
 export class DatabaseStorage implements IStorage {
+  constructor(private db: any, private schema: any) {} // Added db and schema as parameters
+
   async getUser(id: string): Promise<User | undefined> {
-    const result = await db.select().from(users).where(eq(users.id, id));
+    const result = await this.db.select().from(this.schema.users).where(eq(this.schema.users.id, id));
     return result[0];
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    const result = await db.select().from(users).where(eq(users.username, username));
+    const result = await this.db.select().from(this.schema.users).where(eq(this.schema.users.username, username));
     return result[0];
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const result = await db.insert(users).values(insertUser).returning();
+    const result = await this.db.insert(this.schema.users).values(insertUser).returning();
     return result[0];
   }
 
   async createBotSession(session: InsertBotSession): Promise<BotSession> {
-    const result = await db.insert(botSessions).values(session).returning();
+    const result = await this.db.insert(this.schema.botSessions).values(session).returning();
     return result[0];
   }
 
   async getBotSession(id: string): Promise<BotSession | undefined> {
-    const result = await db.select().from(botSessions).where(eq(botSessions.id, id));
+    const result = await this.db.select().from(this.schema.botSessions).where(eq(this.schema.botSessions.id, id));
     return result[0];
   }
 
   async getActiveBotSession(): Promise<BotSession | undefined> {
-    const result = await db.select().from(botSessions)
-      .where(eq(botSessions.status, "running"))
-      .orderBy(desc(botSessions.startedAt))
+    const result = await this.db.select().from(this.schema.botSessions)
+      .where(eq(this.schema.botSessions.status, "running"))
+      .orderBy(desc(this.schema.botSessions.startedAt))
       .limit(1);
     return result[0];
   }
 
   async updateBotSession(id: string, updates: Partial<BotSession>): Promise<BotSession | undefined> {
-    const result = await db.update(botSessions)
+    const result = await this.db.update(this.schema.botSessions)
       .set(updates)
-      .where(eq(botSessions.id, id))
+      .where(eq(this.schema.botSessions.id, id))
       .returning();
     return result[0];
   }
 
   async getAllBotSessions(): Promise<BotSession[]> {
-    return await db.select().from(botSessions).orderBy(desc(botSessions.startedAt));
+    return await this.db.select().from(this.schema.botSessions).orderBy(desc(this.schema.botSessions.startedAt));
   }
 
   async createPokerTable(table: InsertPokerTable): Promise<PokerTable> {
-    const result = await db.insert(pokerTables).values(table).returning();
+    const result = await this.db.insert(this.schema.pokerTables).values(table).returning();
     return result[0];
   }
 
   async getPokerTable(id: string): Promise<PokerTable | undefined> {
-    const result = await db.select().from(pokerTables).where(eq(pokerTables.id, id));
+    const result = await this.db.select().from(this.schema.pokerTables).where(eq(this.schema.pokerTables.id, id));
     return result[0];
   }
 
   async getTablesBySession(sessionId: string): Promise<PokerTable[]> {
-    return await db.select().from(pokerTables)
-      .where(eq(pokerTables.sessionId, sessionId))
-      .orderBy(desc(pokerTables.createdAt));
+    return await this.db.select().from(this.schema.pokerTables)
+      .where(eq(this.schema.pokerTables.sessionId, sessionId))
+      .orderBy(desc(this.schema.pokerTables.createdAt));
   }
 
   async updatePokerTable(id: string, updates: Partial<PokerTable>): Promise<PokerTable | undefined> {
-    const result = await db.update(pokerTables)
+    const result = await this.db.update(this.schema.pokerTables)
       .set(updates)
-      .where(eq(pokerTables.id, id))
+      .where(eq(this.schema.pokerTables.id, id))
       .returning();
     return result[0];
   }
 
   async deletePokerTable(id: string): Promise<void> {
-    await db.delete(pokerTables).where(eq(pokerTables.id, id));
+    await this.db.delete(this.schema.pokerTables).where(eq(this.schema.pokerTables.id, id));
   }
 
   async createHandHistory(hand: InsertHandHistory): Promise<HandHistory> {
-    const result = await db.insert(handHistories).values(hand).returning();
+    const result = await this.db.insert(this.schema.handHistories).values(hand).returning();
     return result[0];
   }
 
   async getHandHistoriesBySession(sessionId: string): Promise<HandHistory[]> {
-    return await db.select().from(handHistories)
-      .where(eq(handHistories.sessionId, sessionId))
-      .orderBy(desc(handHistories.playedAt));
+    return await this.db.select().from(this.schema.handHistories)
+      .where(eq(this.schema.handHistories.sessionId, sessionId))
+      .orderBy(desc(this.schema.handHistories.playedAt));
   }
 
   async getHandHistoriesByTable(tableId: string): Promise<HandHistory[]> {
-    return await db.select().from(handHistories)
-      .where(eq(handHistories.tableId, tableId))
-      .orderBy(desc(handHistories.playedAt));
+    return await this.db.select().from(this.schema.handHistories)
+      .where(eq(this.schema.handHistories.tableId, tableId))
+      .orderBy(desc(this.schema.handHistories.playedAt));
   }
 
-  async getRecentHandHistories(limit: number): Promise<HandHistory[]> {
-    return await db.select().from(handHistories)
-      .orderBy(desc(handHistories.playedAt))
+  async getRecentHandHistories(limit: number = 20): Promise<HandHistory[]> {
+    return this.db
+      .select()
+      .from(this.schema.handHistories)
+      .orderBy(desc(this.schema.handHistories.createdAt))
       .limit(limit);
   }
 
+  async getPlayerProfileState(): Promise<any> {
+    const result = await this.db
+      .select()
+      .from(this.schema.playerProfileState)
+      .orderBy(desc(this.schema.playerProfileState.updatedAt))
+      .limit(1);
+    return result[0] || null;
+  }
+
+  async savePlayerProfileState(state: any): Promise<any> {
+    const [saved] = await this.db
+      .insert(this.schema.playerProfileState)
+      .values({
+        personality: state.personality,
+        tiltLevel: state.tiltLevel,
+        fatigueLevel: state.fatigueLevel,
+        sessionDuration: state.sessionDuration,
+        recentBadBeats: state.recentBadBeats,
+        consecutiveLosses: state.consecutiveLosses,
+        consecutiveWins: state.consecutiveWins,
+        lastBigWin: state.lastBigWin,
+        lastBigLoss: state.lastBigLoss,
+        sessionStartTime: new Date(Date.now() - state.sessionDuration * 60000),
+      })
+      .returning();
+    return saved;
+  }
+
+  async updatePlayerProfileState(state: any): Promise<any> {
+    const existing = await this.getPlayerProfileState();
+    if (!existing) {
+      return this.savePlayerProfileState(state);
+    }
+
+    const [updated] = await this.db
+      .update(this.schema.playerProfileState)
+      .set({
+        personality: state.personality,
+        tiltLevel: state.tiltLevel,
+        fatigueLevel: state.fatigueLevel,
+        sessionDuration: state.sessionDuration,
+        recentBadBeats: state.recentBadBeats,
+        consecutiveLosses: state.consecutiveLosses,
+        consecutiveWins: state.consecutiveWins,
+        lastBigWin: state.lastBigWin,
+        lastBigLoss: state.lastBigLoss,
+        updatedAt: new Date(),
+      })
+      .where(eq(this.schema.playerProfileState.id, existing.id))
+      .returning();
+    return updated;
+  }
+
   async getHumanizerConfig(): Promise<HumanizerConfig | undefined> {
-    const result = await db.select().from(humanizerConfig).limit(1);
+    const result = await this.db.select().from(this.schema.humanizerConfig).limit(1);
     return result[0];
   }
 
@@ -171,20 +232,20 @@ export class DatabaseStorage implements IStorage {
     if (!existing) {
       return this.createDefaultHumanizerConfig();
     }
-    const result = await db.update(humanizerConfig)
+    const result = await this.db.update(this.schema.humanizerConfig)
       .set(updates)
-      .where(eq(humanizerConfig.id, existing.id))
+      .where(eq(this.schema.humanizerConfig.id, existing.id))
       .returning();
     return result[0];
   }
 
   async createDefaultHumanizerConfig(): Promise<HumanizerConfig> {
-    const result = await db.insert(humanizerConfig).values({}).returning();
+    const result = await this.db.insert(this.schema.humanizerConfig).values({}).returning();
     return result[0];
   }
 
   async getGtoConfig(): Promise<GtoConfig | undefined> {
-    const result = await db.select().from(gtoConfig).limit(1);
+    const result = await this.db.select().from(this.schema.gtoConfig).limit(1);
     return result[0];
   }
 
@@ -193,20 +254,20 @@ export class DatabaseStorage implements IStorage {
     if (!existing) {
       return this.createDefaultGtoConfig();
     }
-    const result = await db.update(gtoConfig)
+    const result = await this.db.update(this.schema.gtoConfig)
       .set(updates)
-      .where(eq(gtoConfig.id, existing.id))
+      .where(eq(this.schema.gtoConfig.id, existing.id))
       .returning();
     return result[0];
   }
 
   async createDefaultGtoConfig(): Promise<GtoConfig> {
-    const result = await db.insert(gtoConfig).values({}).returning();
+    const result = await this.db.insert(this.schema.gtoConfig).values({}).returning();
     return result[0];
   }
 
   async getPlatformConfig(): Promise<PlatformConfig | undefined> {
-    const result = await db.select().from(platformConfig).limit(1);
+    const result = await this.db.select().from(this.schema.platformConfig).limit(1);
     return result[0];
   }
 
@@ -215,38 +276,38 @@ export class DatabaseStorage implements IStorage {
     if (!existing) {
       return this.createPlatformConfig({ platformName: "unknown", ...updates } as InsertPlatformConfig);
     }
-    const result = await db.update(platformConfig)
+    const result = await this.db.update(this.schema.platformConfig)
       .set(updates)
-      .where(eq(platformConfig.id, existing.id))
+      .where(eq(this.schema.platformConfig.id, existing.id))
       .returning();
     return result[0];
   }
 
   async createPlatformConfig(config: InsertPlatformConfig): Promise<PlatformConfig> {
-    const result = await db.insert(platformConfig).values(config).returning();
+    const result = await this.db.insert(this.schema.platformConfig).values(config).returning();
     return result[0];
   }
 
   async createActionLog(log: InsertActionLog): Promise<ActionLog> {
-    const result = await db.insert(actionLogs).values(log).returning();
+    const result = await this.db.insert(this.schema.actionLogs).values(log).returning();
     return result[0];
   }
 
   async getActionLogsBySession(sessionId: string): Promise<ActionLog[]> {
-    return await db.select().from(actionLogs)
-      .where(eq(actionLogs.sessionId, sessionId))
-      .orderBy(desc(actionLogs.createdAt));
+    return await this.db.select().from(this.schema.actionLogs)
+      .where(eq(this.schema.actionLogs.sessionId, sessionId))
+      .orderBy(desc(this.schema.actionLogs.createdAt));
   }
 
   async getRecentActionLogs(limit: number): Promise<ActionLog[]> {
-    return await db.select().from(actionLogs)
-      .orderBy(desc(actionLogs.createdAt))
+    return await this.db.select().from(this.schema.actionLogs)
+      .orderBy(desc(this.schema.actionLogs.createdAt))
       .limit(limit);
   }
 
   async getBotStats(sessionId: string): Promise<BotStats | undefined> {
-    const result = await db.select().from(botStats)
-      .where(eq(botStats.sessionId, sessionId));
+    const result = await this.db.select().from(this.schema.botStats)
+      .where(eq(this.schema.botStats.sessionId, sessionId));
     return result[0];
   }
 
@@ -255,17 +316,28 @@ export class DatabaseStorage implements IStorage {
     if (!existing) {
       return this.createBotStats({ sessionId, ...updates } as InsertBotStats);
     }
-    const result = await db.update(botStats)
+    const result = await this.db.update(this.schema.botStats)
       .set({ ...updates, updatedAt: new Date() })
-      .where(eq(botStats.sessionId, sessionId))
+      .where(eq(this.schema.botStats.sessionId, sessionId))
       .returning();
     return result[0];
   }
 
   async createBotStats(stats: InsertBotStats): Promise<BotStats> {
-    const result = await db.insert(botStats).values(stats).returning();
+    const result = await this.db.insert(this.schema.botStats).values(stats).returning();
     return result[0];
   }
 }
 
-export const storage = new DatabaseStorage();
+export const storage = new DatabaseStorage(db, {
+  users,
+  botSessions,
+  pokerTables,
+  handHistories,
+  humanizerConfig,
+  gtoConfig,
+  platformConfig,
+  actionLogs,
+  botStats,
+  playerProfileState // Assuming playerProfileState is defined in @shared/schema
+});
