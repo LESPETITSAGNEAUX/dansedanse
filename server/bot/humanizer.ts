@@ -1,4 +1,5 @@
 import { HumanizerConfig } from "@shared/schema";
+import { getPlayerProfile, ProfileModifiers } from "./player-profile";
 
 export interface HumanizerSettings {
   minDelayMs: number;
@@ -12,6 +13,7 @@ export interface HumanizerSettings {
   preActionDelay: number;
   postActionDelay: number;
   stealthModeEnabled: boolean;
+  enableDynamicProfile: boolean;
 }
 
 export interface BezierPoint {
@@ -62,6 +64,7 @@ export class Humanizer {
       preActionDelay: 500,
       postActionDelay: 300,
       stealthModeEnabled: true,
+      enableDynamicProfile: true,
       ...settings,
     };
   }
@@ -78,14 +81,36 @@ export class Humanizer {
     if (config.preActionDelay !== undefined && config.preActionDelay !== null) this.settings.preActionDelay = config.preActionDelay;
     if (config.postActionDelay !== undefined && config.postActionDelay !== null) this.settings.postActionDelay = config.postActionDelay;
     if (config.stealthModeEnabled !== undefined && config.stealthModeEnabled !== null) this.settings.stealthModeEnabled = config.stealthModeEnabled;
+    if ((config as any).enableDynamicProfile !== undefined) this.settings.enableDynamicProfile = (config as any).enableDynamicProfile;
   }
   
   getSettings(): HumanizerSettings {
     return { ...this.settings };
   }
   
-  calculateThinkingDelay(actionType: string, handStrength: number, isComplexDecision: boolean): number {
-    const { minDelayMs, maxDelayMs, thinkingTimeVariance, stealthModeEnabled } = this.settings;
+  calculateThinkingDelay(actionType: string, handStrength: number, isComplexDecision: boolean, street: string = "preflop", potSize: number = 0): number {
+    const { minDelayMs, maxDelayMs, thinkingTimeVariance, stealthModeEnabled, enableDynamicProfile } = this.settings;
+    
+    // Récupérer les modifiers du profil dynamique
+    let modifiers: ProfileModifiers = {
+      delayMultiplier: 1,
+      varianceMultiplier: 1,
+      errorProbability: 0,
+      aggressionShift: 0,
+      rangeWidening: 1,
+      sizingVariance: 1,
+    };
+
+    if (enableDynamicProfile) {
+      const profile = getPlayerProfile();
+      modifiers = profile.getModifiers();
+      
+      // Micro-pause si fatigué sur gros pot
+      if (profile.shouldTakeMicroBreak(street, potSize)) {
+        const breakDuration = profile.getMicroBreakDuration();
+        return Math.round(breakDuration * modifiers.delayMultiplier);
+      }
+    }
     
     let baseDelay = (minDelayMs + maxDelayMs) / 2;
     
@@ -110,11 +135,14 @@ export class Humanizer {
     if (isComplexDecision) {
       baseDelay *= randomInRange(1.3, 1.8);
     }
+
+    // Appliquer le multiplicateur de délai du profil (tilt = plus rapide)
+    baseDelay *= modifiers.delayMultiplier;
     
-    const variance = baseDelay * thinkingTimeVariance;
+    const variance = baseDelay * thinkingTimeVariance * modifiers.varianceMultiplier;
     const randomizedDelay = gaussianRandom(baseDelay, variance);
     
-    let finalDelay = clamp(randomizedDelay, minDelayMs, maxDelayMs * 1.5);
+    let finalDelay = clamp(randomizedDelay, minDelayMs * modifiers.delayMultiplier, maxDelayMs * 1.5);
     
     if (stealthModeEnabled) {
       // Minimum absolu pour éviter détection (jamais <800ms)
@@ -187,7 +215,15 @@ export class Humanizer {
   
   shouldTriggerMisclick(): boolean {
     if (!this.settings.enableMisclicks) return false;
-    return Math.random() < this.settings.misclickProbability;
+    
+    let probability = this.settings.misclickProbability;
+    
+    if (this.settings.enableDynamicProfile) {
+      const modifiers = getPlayerProfile().getModifiers();
+      probability += modifiers.errorProbability;
+    }
+    
+    return Math.random() < probability;
   }
   
   shouldTriggerRandomFold(): boolean {
@@ -218,9 +254,11 @@ export class Humanizer {
     handStrength: number,
     isComplexDecision: boolean,
     buttonPosition?: { x: number; y: number },
-    currentMousePosition?: { x: number; y: number }
+    currentMousePosition?: { x: number; y: number },
+    street: string = "preflop",
+    potSize: number = 0
   ): HumanizedAction {
-    const thinkingDelay = this.calculateThinkingDelay(action, handStrength, isComplexDecision);
+    const thinkingDelay = this.calculateThinkingDelay(action, handStrength, isComplexDecision, street, potSize);
     const thinkingPauses = this.generateThinkingPauses(thinkingDelay);
     const shouldMisclick = this.shouldTriggerMisclick();
     

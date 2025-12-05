@@ -271,7 +271,15 @@ export class TableSession extends EventEmitter {
       recommendation.actions.filter(a => a.probability > 0.2).length > 2;
 
     const handStrength = this.estimateHandStrength();
-    const humanizedAction = humanizer.humanizeAction(selectedAction, handStrength, isComplexDecision);
+    const humanizedAction = humanizer.humanizeAction(
+      selectedAction, 
+      handStrength, 
+      isComplexDecision,
+      undefined,
+      undefined,
+      this.tableState.currentStreet,
+      data.potSize
+    );
 
     this.updateState({ lastHumanizedAction: humanizedAction });
 
@@ -330,6 +338,15 @@ export class TableSession extends EventEmitter {
       currentStreet: "preflop",
       isHeroTurn: false,
     });
+
+    // Enregistrer l'action dans le profil pour tracking tilt/fatigue
+    const { getPlayerProfile } = await import("./player-profile");
+    const profile = getPlayerProfile();
+    profile.recordAction(
+      this.tableState.lastHumanizedAction?.action || "UNKNOWN",
+      result,
+      this.tableState.currentPot
+    );
 
     await storage.createHandHistory({
       tableId: this.tableState.id,
