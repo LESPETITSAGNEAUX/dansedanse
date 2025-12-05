@@ -235,3 +235,42 @@ export function createWebSocketConnection(
   
   return ws;
 }
+
+
+
+export interface PlayerProfileState {
+  personality: string;
+  currentAggression: number;
+  currentPatience: number;
+  currentFocus: number;
+  tiltLevel: number;
+  fatigueLevel: number;
+  sessionDuration: number;
+  recentBadBeats: number;
+  consecutiveLosses: number;
+  consecutiveWins: number;
+  timeOfDay: number;
+}
+
+export interface PlayerProfileData {
+  state: PlayerProfileState;
+  config: any;
+  modifiers: any;
+}
+
+export async function getPlayerProfile(): Promise<PlayerProfileData> {
+  return fetchJson<PlayerProfileData>(`${API_BASE}/player-profile`);
+}
+
+export async function updatePlayerPersonality(personality: string): Promise<PlayerProfileData> {
+  return fetchJson<PlayerProfileData>(`${API_BASE}/player-profile/personality`, {
+    method: "POST",
+    body: JSON.stringify({ personality }),
+  });
+}
+
+export async function resetPlayerProfile(): Promise<{ state: PlayerProfileState; message: string }> {
+  return fetchJson<{ state: PlayerProfileState; message: string }>(`${API_BASE}/player-profile/reset`, {
+    method: "POST",
+  });
+}

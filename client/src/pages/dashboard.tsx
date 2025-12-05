@@ -3,8 +3,9 @@ import { StatsGrid } from "@/components/dashboard/stats-grid";
 import { TableVisualizer } from "@/components/poker/table-visualizer";
 import { ActionLog } from "@/components/poker/action-log";
 import { HumanizerPanel } from "@/components/settings/humanizer-panel";
+import { ProfilePanel } from "@/components/settings/profile-panel";
 import { useBotState } from "@/hooks/use-bot-state";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -12,6 +13,9 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Play, Square, RefreshCw, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
+import api from "@/lib/api";
+import { HumanizerSettings } from "@/types/humanizer";
+
 
 export default function Dashboard() {
   const {
@@ -39,6 +43,27 @@ export default function Dashboard() {
   });
   const [isUpdatingHumanizer, setIsUpdatingHumanizer] = useState(false);
   const [selectedTableIndex, setSelectedTableIndex] = useState(0);
+  const [playerProfile, setPlayerProfile] = useState<any>(null);
+  const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
+
+
+  useEffect(() => {
+    const loadInitialData = async () => {
+      try {
+        const humanizerData = await api.getHumanizerSettings();
+        setHumanizerSettings(humanizerData);
+
+        const profileData = await api.getPlayerProfile();
+        setPlayerProfile(profileData);
+      } catch (err) {
+        console.error("Erreur chargement données initiales:", err);
+        toast.error("Erreur lors du chargement des données initiales.");
+      }
+    };
+
+    loadInitialData();
+  }, []);
+
 
   const handleStartSession = async () => {
     try {
@@ -74,16 +99,43 @@ export default function Dashboard() {
     }
   };
 
-  const handleUpdateHumanizer = async (updates: Parameters<typeof updateHumanizer>[0]) => {
+  const handleUpdateHumanizer = async (updates: Partial<HumanizerSettings>) => {
     setIsUpdatingHumanizer(true);
     try {
-      await updateHumanizer(updates);
-    } catch (error: any) {
-      toast.error(error.message || "Erreur mise à jour humanizer");
+      const updated = await api.updateHumanizerSettings(updates);
+      setHumanizerSettings(updated);
+    } catch (err) {
+      console.error("Erreur mise à jour humanizer:", err);
     } finally {
       setIsUpdatingHumanizer(false);
     }
   };
+
+  const handleUpdatePersonality = async (personality: string) => {
+    setIsUpdatingProfile(true);
+    try {
+      const updated = await api.updatePlayerPersonality(personality);
+      setPlayerProfile(updated);
+    } catch (err) {
+      console.error("Erreur mise à jour personnalité:", err);
+    } finally {
+      setIsUpdatingProfile(false);
+    }
+  };
+
+  const handleResetProfile = async () => {
+    setIsUpdatingProfile(true);
+    try {
+      await api.resetPlayerProfile();
+      const updated = await api.getPlayerProfile();
+      setPlayerProfile(updated);
+    } catch (err) {
+      console.error("Erreur reset profil:", err);
+    } finally {
+      setIsUpdatingProfile(false);
+    }
+  };
+
 
   const selectedTable = tables[selectedTableIndex] || null;
 
@@ -136,7 +188,7 @@ export default function Dashboard() {
                 DÉMARRER SESSION
               </Button>
             )}
-            
+
             <Dialog open={isAddingTable} onOpenChange={setIsAddingTable}>
               <DialogTrigger asChild>
                 <Button 
@@ -252,11 +304,17 @@ export default function Dashboard() {
               <ActionLog logs={logs} isLoading={isLoading} />
             </div>
           </div>
-          <div className="lg:col-span-1">
+          <div className="lg:col-span-1 flex flex-col gap-6">
             <HumanizerPanel 
               settings={humanizerSettings}
               onUpdate={handleUpdateHumanizer}
               isUpdating={isUpdatingHumanizer}
+            />
+            <ProfilePanel 
+              profile={playerProfile}
+              onUpdatePersonality={handleUpdatePersonality}
+              onReset={handleResetProfile}
+              isUpdating={isUpdatingProfile}
             />
           </div>
         </div>
