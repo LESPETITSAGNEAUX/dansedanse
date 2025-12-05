@@ -14,6 +14,11 @@ import {
   parseCardNotation,
 } from "../platform-adapter";
 import { getCalibrationManager, colorMatch, findColorInRegion, getDominantColorInRegion, CalibrationProfile, TableRegions } from "../calibration";
+import { ImageProcessor, detectSuitByHSV, preprocessForOCR, extractRegion } from "../image-processing";
+import { TemplateMatcher, templateMatcher } from "../template-matching";
+import { CombinedCardRecognizer, combinedRecognizer } from "../card-classifier";
+import { debugVisualizer, createDebugSession, DebugFrame, GtoDebugInfo } from "../debug-visualizer";
+import { AdvancedGtoAdapter, advancedGtoAdapter, PlayerProfiler } from "../gto-advanced";
 
 let Tesseract: any = null;
 let screenshotDesktop: any = null;
@@ -115,6 +120,11 @@ export class GGClubAdapter extends PlatformAdapter {
   private calibrationManager = getCalibrationManager();
   private activeCalibration: CalibrationProfile | null = null;
   private scaledRegions: Map<number, TableRegions> = new Map();
+  private imageProcessor: ImageProcessor;
+  private cardRecognizer: CombinedCardRecognizer;
+  private gtoAdapter: AdvancedGtoAdapter;
+  private playerProfiler: PlayerProfiler;
+  private debugMode: boolean = false;
 
   constructor() {
     super("GGClub", {
@@ -130,7 +140,24 @@ export class GGClubAdapter extends PlatformAdapter {
 
     this.screenLayout = this.getDefaultScreenLayout();
     this.antiDetectionMonitor = new AntiDetectionMonitor(this);
+    this.imageProcessor = new ImageProcessor();
+    this.cardRecognizer = new CombinedCardRecognizer();
+    this.gtoAdapter = new AdvancedGtoAdapter();
+    this.playerProfiler = new PlayerProfiler();
     this.initializeTesseract();
+  }
+
+  enableDebugMode(enabled: boolean = true): void {
+    this.debugMode = enabled;
+    this.imageProcessor.enableDebugMode(enabled);
+    this.cardRecognizer.enableDebugMode(enabled);
+    this.gtoAdapter.enableDebugMode(enabled);
+    debugVisualizer.enableDebugMode();
+    console.log(`[GGClubAdapter] Debug mode ${enabled ? 'enabled' : 'disabled'}`);
+  }
+
+  getDebugVisualizer() {
+    return debugVisualizer;
   }
   
   private async initializeTesseract(): Promise<void> {
@@ -573,12 +600,32 @@ export class GGClubAdapter extends PlatformAdapter {
     await this.addRandomDelay(30);
 
     const cards: CardInfo[] = [];
+    const window = Array.from(this.activeWindows.values())[0];
+    const imageWidth = window?.width || 880;
+
+    if (this.debugMode) {
+      debugVisualizer.startFrame(window?.handle || 0);
+      debugVisualizer.addRegion("cardRegion", region, "Cards");
+    }
+
+    const preprocessedBuffer = preprocessForOCR(
+      screenBuffer,
+      imageWidth,
+      window?.height || 600,
+      {
+        blurRadius: 1,
+        contrastFactor: 1.3,
+        thresholdValue: 128,
+        adaptiveThreshold: true,
+        noiseReductionLevel: "medium",
+      }
+    );
 
     const cardPatterns = this.detectCardPatterns(screenBuffer, region);
 
     for (const pattern of cardPatterns) {
-      const rank = await this.recognizeCardRank(pattern);
-      const suit = await this.recognizeCardSuit(pattern);
+      const rank = await this.recognizeCardRank(pattern, preprocessedBuffer, imageWidth);
+      const suit = await this.recognizeCardSuit(pattern, screenBuffer, imageWidth);
 
       if (rank && suit) {
         cards.push({
@@ -586,7 +633,15 @@ export class GGClubAdapter extends PlatformAdapter {
           suit,
           raw: `${rank}${suit.charAt(0)}`,
         });
+        
+        if (this.debugMode) {
+          debugVisualizer.addDetection("card", pattern, `${rank}${suit.charAt(0)}`, 0.8, "combined");
+        }
       }
+    }
+
+    if (this.debugMode) {
+      debugVisualizer.endFrame();
     }
 
     return cards;
@@ -612,15 +667,74 @@ export class GGClubAdapter extends PlatformAdapter {
     return patterns;
   }
 
-  private async recognizeCardRank(region: ScreenRegion): Promise<string | null> {
+  private async recognizeCardRank(region: ScreenRegion, screenBuffer?: Buffer, imageWidth?: number): Promise<string | null> {
     await this.addRandomDelay(10);
+
+    if (screenBuffer && imageWidth) {
+      try {
+        const window = Array.from(this.activeWindows.values())[0];
+        const width = imageWidth || window?.width || 880;
+        const height = window?.height || 600;
+        
+        const rankRegion: ScreenRegion = {
+          x: region.x,
+          y: region.y,
+          width: Math.min(region.width * 0.4, 25),
+          height: Math.min(region.height * 0.35, 25),
+        };
+        
+        const result = this.cardRecognizer.recognizeRank(screenBuffer, width, height, rankRegion);
+        
+        if (this.debugMode) {
+          debugVisualizer.addDetection("card", rankRegion, result.rank || "?", result.confidence, result.method);
+        }
+        
+        if (result.rank && result.confidence > 0.4) {
+          return result.rank;
+        }
+        
+        const templateResult = templateMatcher.matchCardRank(screenBuffer, width, height, rankRegion);
+        if (templateResult.rank && templateResult.confidence > 0.5) {
+          return templateResult.rank;
+        }
+      } catch (error) {
+        console.error("[GGClubAdapter] Card rank recognition error:", error);
+      }
+    }
 
     const ranks = ["A", "K", "Q", "J", "T", "9", "8", "7", "6", "5", "4", "3", "2"];
     return ranks[Math.floor(Math.random() * ranks.length)] || null;
   }
 
-  private async recognizeCardSuit(region: ScreenRegion): Promise<string | null> {
+  private async recognizeCardSuit(region: ScreenRegion, screenBuffer?: Buffer, imageWidth?: number): Promise<string | null> {
     await this.addRandomDelay(10);
+
+    if (screenBuffer && imageWidth) {
+      try {
+        const window = Array.from(this.activeWindows.values())[0];
+        const width = imageWidth || window?.width || 880;
+        const height = window?.height || 600;
+        
+        const suitRegion: ScreenRegion = {
+          x: region.x,
+          y: region.y + Math.floor(region.height * 0.35),
+          width: Math.min(region.width * 0.4, 20),
+          height: Math.min(region.height * 0.3, 20),
+        };
+        
+        const result = detectSuitByHSV(screenBuffer, width, height, suitRegion);
+        
+        if (this.debugMode) {
+          debugVisualizer.addDetection("card", suitRegion, result.suit || "?", result.confidence, "hsv");
+        }
+        
+        if (result.suit && result.confidence > 0.3) {
+          return result.suit;
+        }
+      } catch (error) {
+        console.error("[GGClubAdapter] Card suit recognition error:", error);
+      }
+    }
 
     const suits = ["hearts", "diamonds", "clubs", "spades"];
     return suits[Math.floor(Math.random() * suits.length)] || null;

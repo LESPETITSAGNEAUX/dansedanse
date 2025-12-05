@@ -591,25 +591,4 @@ export class TemplateMatcher {
   }
 }
 
-function toGrayscale(
-  imageBuffer: Buffer,
-  width: number,
-  height: number,
-  channels: number = 4
-): Uint8Array {
-  const grayscale = new Uint8Array(width * height);
-
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const srcOffset = (y * width + x) * channels;
-      const r = imageBuffer[srcOffset];
-      const g = imageBuffer[srcOffset + 1];
-      const b = imageBuffer[srcOffset + 2];
-      grayscale[y * width + x] = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
-    }
-  }
-
-  return grayscale;
-}
-
 export const templateMatcher = new TemplateMatcher();

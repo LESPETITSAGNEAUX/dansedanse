@@ -377,8 +377,12 @@ export async function initializeGtoAdapter(config: {
   apiEndpoint?: string;
   apiKey?: string;
   useSimulation?: boolean;
+  useAdvanced?: boolean;
 }): Promise<GtoAdapter> {
-  if (config.useSimulation || !config.apiKey || !config.apiEndpoint) {
+  if (config.useAdvanced) {
+    const { AdvancedGtoAdapter } = await import("./gto-advanced");
+    currentGtoAdapter = new AdvancedGtoAdapter();
+  } else if (config.useSimulation || !config.apiKey || !config.apiEndpoint) {
     currentGtoAdapter = new SimulatedGtoAdapter();
   } else {
     currentGtoAdapter = new GtoWizardAdapter(config.apiEndpoint, config.apiKey);
