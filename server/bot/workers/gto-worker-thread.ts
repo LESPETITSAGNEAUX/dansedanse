@@ -1,7 +1,7 @@
 
 import { parentPort } from 'worker_threads';
-import { HandContext } from '../gto-engine';
-import { AdvancedGtoAdapter } from '../gto-advanced';
+import { HandContext } from '../gto-engine.js';
+import { AdvancedGtoAdapter } from '../gto-advanced.js';
 
 export interface GtoTask {
   id: string;

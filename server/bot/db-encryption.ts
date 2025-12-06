@@ -1,6 +1,9 @@
 
 import crypto from "crypto";
 
+// ES6 Module - utilisable uniquement avec import dynamique ou static
+// Exemple: const { encryptData } = await import("./db-encryption.js");
+
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 16;
 const TAG_LENGTH = 16;

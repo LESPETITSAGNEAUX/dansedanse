@@ -1,10 +1,5 @@
 
-import { WorkerPool } from './worker-pool';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import { WorkerPool } from './worker-pool.js';
 
 export class WorkerManager {
   private visionPool: WorkerPool | null = null;
@@ -18,21 +13,21 @@ export class WorkerManager {
     try {
       // Initialize Vision Worker Pool
       this.visionPool = new WorkerPool(
-        path.join(__dirname, 'vision-worker-thread.js'),
+        new URL('./vision-worker-thread.js', import.meta.url).pathname,
         3 // 3 workers pour vision (CPU intensive)
       );
       await this.visionPool.initialize();
 
       // Initialize GTO Worker Pool
       this.gtoPool = new WorkerPool(
-        path.join(__dirname, 'gto-worker-thread.js'),
+        new URL('./gto-worker-thread.js', import.meta.url).pathname,
         2 // 2 workers pour GTO
       );
       await this.gtoPool.initialize();
 
       // Initialize Humanizer Worker Pool
       this.humanizerPool = new WorkerPool(
-        path.join(__dirname, 'humanizer-worker-thread.js'),
+        new URL('./humanizer-worker-thread.js', import.meta.url).pathname,
         2 // 2 workers pour humanizer
       );
       await this.humanizerPool.initialize();

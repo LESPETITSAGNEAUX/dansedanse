@@ -282,7 +282,7 @@ export class RangeUpdater {
     const mergedRanges = this.mergeRangeUpdates(updates);
 
     // Chiffrer les ranges avant stockage
-    const { encryptData } = await import("./db-encryption");
+    const { encryptData } = await import("./db-encryption.js");
     const encryptedRanges = encryptData(mergedRanges);
 
     // Stocker les ranges chiffrés dans la DB
@@ -297,7 +297,7 @@ export class RangeUpdater {
     });
 
     // Store in cache for quick access
-    const { getGtoCache } = await import("./gto-cache");
+    const { getGtoCache } = await import("./gto-cache.js");
     const cache = getGtoCache();
 
     // Pre-warm cache with new ranges
@@ -335,7 +335,7 @@ export class RangeUpdater {
   }
 
   private async warmCacheWithRanges(ranges: RangeDefinition[]): Promise<void> {
-    const { getGtoCache } = await import("./gto-cache");
+    const { getGtoCache } = await import("./gto-cache.js");
     const cache = getGtoCache();
 
     const commonSituations: HandContext[] = [];

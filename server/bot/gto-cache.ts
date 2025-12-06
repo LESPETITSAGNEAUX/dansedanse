@@ -73,7 +73,7 @@ export class GtoCache {
     
     // Déchiffrer la recommandation si elle est chiffrée
     try {
-      const { decryptData, isEncrypted } = await import("./db-encryption");
+      const { decryptData, isEncrypted } = await import("./db-encryption.js");
       if (typeof entry.recommendation === "string" && isEncrypted(entry.recommendation)) {
         return decryptData<GtoRecommendation>(entry.recommendation);
       }
@@ -94,7 +94,7 @@ export class GtoCache {
 
     // Chiffrer la recommandation avant mise en cache
     try {
-      const { encryptData } = await import("./db-encryption");
+      const { encryptData } = await import("./db-encryption.js");
       const encryptedRec = encryptData(recommendation);
       
       this.cache.set(key, {
@@ -169,7 +169,7 @@ export class GtoCache {
   async warmup(commonSituations: HandContext[]): Promise<void> {
     console.log(`[GtoCache] Warming up cache with ${commonSituations.length} common situations...`);
     
-    const { getGtoAdapter } = await import("./gto-engine");
+    const { getGtoAdapter } = await import("./gto-engine.js");
     const adapter = getGtoAdapter();
 
     for (const situation of commonSituations) {
