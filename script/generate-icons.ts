@@ -1,7 +1,5 @@
-
 import fs from 'fs';
 import path from 'path';
-import { createCanvas } from 'canvas';
 
 const ASSETS_DIR = path.join(process.cwd(), 'electron', 'assets');
 
@@ -10,129 +8,56 @@ if (!fs.existsSync(ASSETS_DIR)) {
   fs.mkdirSync(ASSETS_DIR, { recursive: true });
 }
 
-// Fonction pour créer l'icône principale (256x256)
-function createMainIcon() {
-  const size = 256;
-  const canvas = createCanvas(size, size);
-  const ctx = canvas.getContext('2d');
+// Fonction pour créer un SVG simple de jeton de poker
+function createPokerChipSVG(size: number, text: string): string {
+  const fontSize = size / 4;
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
+  <!-- Cercle extérieur doré -->
+  <circle cx="${size/2}" cy="${size/2}" r="${size/2 - 10}" fill="#FFD700"/>
 
-  // Fond transparent
-  ctx.clearRect(0, 0, size, size);
+  <!-- Cercle intérieur rouge bordeaux -->
+  <circle cx="${size/2}" cy="${size/2}" r="${size/2 - 15}" fill="#8B0000"/>
 
-  // Jeton de poker - cercle extérieur doré
-  ctx.fillStyle = '#FFD700';
-  ctx.beginPath();
-  ctx.arc(size / 2, size / 2, 120, 0, Math.PI * 2);
-  ctx.fill();
+  <!-- Anneau doré interne -->
+  <circle cx="${size/2}" cy="${size/2}" r="${size/2 - 25}" fill="#FFD700"/>
 
-  // Cercle intérieur rouge bordeaux
-  ctx.fillStyle = '#8B0000';
-  ctx.beginPath();
-  ctx.arc(size / 2, size / 2, 110, 0, Math.PI * 2);
-  ctx.fill();
+  <!-- Centre rouge -->
+  <circle cx="${size/2}" cy="${size/2}" r="${size/2 - 35}" fill="#8B0000"/>
 
-  // Anneau doré interne
-  ctx.fillStyle = '#FFD700';
-  ctx.beginPath();
-  ctx.arc(size / 2, size / 2, 100, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Centre rouge
-  ctx.fillStyle = '#8B0000';
-  ctx.beginPath();
-  ctx.arc(size / 2, size / 2, 90, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Accents dorés sur les bords (effet jeton)
-  for (let i = 0; i < 12; i++) {
+  <!-- Accents dorés sur les bords (effet jeton) -->
+  ${Array.from({length: 12}, (_, i) => {
     const angle = (Math.PI * 2 * i) / 12;
-    const x = size / 2 + Math.cos(angle) * 105;
-    const y = size / 2 + Math.sin(angle) * 105;
-    ctx.fillStyle = '#FFD700';
-    ctx.beginPath();
-    ctx.arc(x, y, 8, 0, Math.PI * 2);
-    ctx.fill();
-  }
+    const x = size/2 + Math.cos(angle) * (size/2 - 17);
+    const y = size/2 + Math.sin(angle) * (size/2 - 17);
+    return `<circle cx="${x}" cy="${y}" r="8" fill="#FFD700"/>`;
+  }).join('\n  ')}
 
-  // Texte "GTO"
-  ctx.fillStyle = 'white';
-  ctx.font = 'bold 64px Arial';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('GTO', size / 2, size / 2);
-
-  return canvas;
+  <!-- Texte "GTO" -->
+  <text x="${size/2}" y="${size/2}" font-family="Arial, sans-serif" font-size="${fontSize}" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="central">${text}</text>
+</svg>`;
 }
 
-// Fonction pour créer l'icône tray (32x32)
-function createTrayIcon() {
-  const size = 32;
-  const canvas = createCanvas(size, size);
-  const ctx = canvas.getContext('2d');
+// Générer les SVG
+const mainIconSVG = createPokerChipSVG(256, 'GTO');
+const trayIconSVG = createPokerChipSVG(32, 'G');
 
-  ctx.clearRect(0, 0, size, size);
+// Sauvegarder les SVG (qui peuvent être utilisés directement sur certaines plateformes)
+fs.writeFileSync(path.join(ASSETS_DIR, 'icon.svg'), mainIconSVG);
+fs.writeFileSync(path.join(ASSETS_DIR, 'tray-icon.svg'), trayIconSVG);
 
-  // Jeton simplifié
-  ctx.fillStyle = '#FFD700';
-  ctx.beginPath();
-  ctx.arc(size / 2, size / 2, 15, 0, Math.PI * 2);
-  ctx.fill();
+console.log('✅ icon.svg créé');
+console.log('✅ tray-icon.svg créé');
 
-  ctx.fillStyle = '#8B0000';
-  ctx.beginPath();
-  ctx.arc(size / 2, size / 2, 13, 0, Math.PI * 2);
-  ctx.fill();
+console.log('\n📝 Instructions pour générer les fichiers PNG et ICO :');
+console.log('\n1. Téléchargez les fichiers SVG depuis electron/assets/');
+console.log('2. Utilisez un outil en ligne pour convertir :');
+console.log('   - SVG vers PNG : https://svgtopng.com/');
+console.log('   - PNG vers ICO : https://icoconvert.com/');
+console.log('\n3. Ou utilisez un service local si vous avez ImageMagick installé :');
+console.log('   convert icon.svg -resize 256x256 icon.png');
+console.log('   convert icon.png -define icon:auto-resize=256,128,64,48,32,16 icon.ico');
+console.log('   convert tray-icon.svg -resize 32x32 tray-icon.png');
 
-  ctx.fillStyle = '#FFD700';
-  ctx.beginPath();
-  ctx.arc(size / 2, size / 2, 11, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.fillStyle = '#8B0000';
-  ctx.beginPath();
-  ctx.arc(size / 2, size / 2, 9, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Texte "G"
-  ctx.fillStyle = 'white';
-  ctx.font = 'bold 16px Arial';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('G', size / 2, size / 2);
-
-  return canvas;
-}
-
-// Générer les icônes
-async function generateIcons() {
-  console.log('🎨 Génération des icônes de poker...');
-
-  try {
-    // Icône principale PNG
-    const mainIcon = createMainIcon();
-    const mainIconPath = path.join(ASSETS_DIR, 'icon.png');
-    const mainIconBuffer = mainIcon.toBuffer('image/png');
-    fs.writeFileSync(mainIconPath, mainIconBuffer);
-    console.log('✅ icon.png créé');
-
-    // Icône tray
-    const trayIcon = createTrayIcon();
-    const trayIconPath = path.join(ASSETS_DIR, 'tray-icon.png');
-    const trayIconBuffer = trayIcon.toBuffer('image/png');
-    fs.writeFileSync(trayIconPath, trayIconBuffer);
-    console.log('✅ tray-icon.png créé');
-
-    console.log('\n⚠️  Note: Pour le fichier .ico Windows, utilisez un outil en ligne:');
-    console.log('   1. Téléchargez icon.png depuis electron/assets/');
-    console.log('   2. Convertissez sur https://icoconvert.com/');
-    console.log('   3. Uploadez icon.ico dans electron/assets/');
-    console.log('\nOu installez le package "png-to-ico" pour automatiser :');
-    console.log('   npm install png-to-ico && node script/convert-to-ico.js');
-
-  } catch (error) {
-    console.error('❌ Erreur lors de la génération:', error);
-    process.exit(1);
-  }
-}
-
-generateIcons();
+console.log('\n💡 Alternative : Créez manuellement les icônes avec un éditeur graphique');
+console.log('   et uploadez-les dans electron/assets/');
