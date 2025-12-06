@@ -1,0 +1,171 @@
+name: Build Windows Installer
+
+on:
+  push:
+    branches: [main, master]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Create a release'
+        required: false
+        default: 'false'
+        type: boolean
+
+env:
+  NODE_VERSION: '20'
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          
+      - name: Setup Python (for native modules)
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          
+      - name: Install Visual Studio Build Tools
+        uses: microsoft/setup-msbuild@v2
+        
+      - name: Setup Windows SDK
+        uses: fbactions/setup-winsdk@v2
+        with:
+          winsdk-build-version: 19041
+          
+      - name: Configure npm for native modules
+        run: |
+          npm config set msvs_version 2022
+          npm config set python python
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Install Electron and build tools
+        run: |
+          npm install --save-dev electron electron-builder
+          npm install --save-dev @electron/rebuild
+          
+      - name: Rebuild native modules for Electron
+        run: |
+          npx @electron/rebuild
+        env:
+          npm_config_msvs_version: 2022
+          
+      - name: Build TypeScript workers
+        run: npm run build:workers
+        
+      - name: Build application
+        run: npm run build
+        
+      - name: Compile DXGI module
+        run: |
+          cd native
+          npx node-gyp configure
+          npx node-gyp build
+        continue-on-error: true
+        
+      - name: Build Electron app
+        run: npx electron-builder --win --x64
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: GTO-Poker-Bot-Windows
+          path: |
+            dist-electron/*.exe
+            dist-electron/*.msi
+          retention-days: 30
+          
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.release == 'true'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            dist-electron/*.exe
+            dist-electron/*.msi
+          draft: true
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-portable:
+    runs-on: windows-latest
+    needs: build-windows
+    if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.release == 'true'
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          
+      - name: Install Visual Studio Build Tools
+        uses: microsoft/setup-msbuild@v2
+        
+      - name: Configure npm
+        run: npm config set msvs_version 2022
+        
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Install Electron and tools
+        run: npm install --save-dev electron electron-builder @electron/rebuild
+        
+      - name: Rebuild native modules
+        run: npx @electron/rebuild
+        
+      - name: Build application
+        run: |
+          npm run build:workers
+          npm run build
+          
+      - name: Compile DXGI
+        run: |
+          cd native
+          npx node-gyp configure
+          npx node-gyp build
+        continue-on-error: true
+        
+      - name: Build Portable version
+        run: npx electron-builder --win portable --x64
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Upload portable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GTO-Poker-Bot-Portable
+          path: dist-electron/*.exe
+          retention-days: 30
+          
+      - name: Add to Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: dist-electron/*portable*.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
