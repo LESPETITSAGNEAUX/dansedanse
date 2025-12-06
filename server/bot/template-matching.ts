@@ -168,22 +168,168 @@ const SUIT_PATTERNS: Record<string, number[][]> = {
   ],
 };
 
-const BUTTON_PATTERNS: Record<string, { colors: { r: number; g: number; b: number; tolerance: number }; textPattern: string[] }> = {
+const BUTTON_TEXT_TEMPLATES: Record<string, number[][]> = {
+  "F": [
+    [1,1,1,1,1],
+    [1,0,0,0,0],
+    [1,1,1,1,0],
+    [1,0,0,0,0],
+    [1,0,0,0,0],
+    [1,0,0,0,0],
+  ],
+  "O": [
+    [0,1,1,1,0],
+    [1,0,0,0,1],
+    [1,0,0,0,1],
+    [1,0,0,0,1],
+    [1,0,0,0,1],
+    [0,1,1,1,0],
+  ],
+  "L": [
+    [1,0,0,0,0],
+    [1,0,0,0,0],
+    [1,0,0,0,0],
+    [1,0,0,0,0],
+    [1,0,0,0,0],
+    [1,1,1,1,1],
+  ],
+  "D": [
+    [1,1,1,0,0],
+    [1,0,0,1,0],
+    [1,0,0,0,1],
+    [1,0,0,0,1],
+    [1,0,0,1,0],
+    [1,1,1,0,0],
+  ],
+  "C": [
+    [0,1,1,1,0],
+    [1,0,0,0,1],
+    [1,0,0,0,0],
+    [1,0,0,0,0],
+    [1,0,0,0,1],
+    [0,1,1,1,0],
+  ],
+  "A": [
+    [0,0,1,0,0],
+    [0,1,0,1,0],
+    [1,0,0,0,1],
+    [1,1,1,1,1],
+    [1,0,0,0,1],
+    [1,0,0,0,1],
+  ],
+  "R": [
+    [1,1,1,1,0],
+    [1,0,0,0,1],
+    [1,0,0,0,1],
+    [1,1,1,1,0],
+    [1,0,0,1,0],
+    [1,0,0,0,1],
+  ],
+  "I": [
+    [1,1,1,1,1],
+    [0,0,1,0,0],
+    [0,0,1,0,0],
+    [0,0,1,0,0],
+    [0,0,1,0,0],
+    [1,1,1,1,1],
+  ],
+  "S": [
+    [0,1,1,1,1],
+    [1,0,0,0,0],
+    [0,1,1,1,0],
+    [0,0,0,0,1],
+    [0,0,0,0,1],
+    [1,1,1,1,0],
+  ],
+  "E": [
+    [1,1,1,1,1],
+    [1,0,0,0,0],
+    [1,1,1,1,0],
+    [1,0,0,0,0],
+    [1,0,0,0,0],
+    [1,1,1,1,1],
+  ],
+  "H": [
+    [1,0,0,0,1],
+    [1,0,0,0,1],
+    [1,1,1,1,1],
+    [1,0,0,0,1],
+    [1,0,0,0,1],
+    [1,0,0,0,1],
+  ],
+  "K": [
+    [1,0,0,1,0],
+    [1,0,1,0,0],
+    [1,1,0,0,0],
+    [1,0,1,0,0],
+    [1,0,0,1,0],
+    [1,0,0,0,1],
+  ],
+  "B": [
+    [1,1,1,1,0],
+    [1,0,0,0,1],
+    [1,1,1,1,0],
+    [1,0,0,0,1],
+    [1,0,0,0,1],
+    [1,1,1,1,0],
+  ],
+  "T": [
+    [1,1,1,1,1],
+    [0,0,1,0,0],
+    [0,0,1,0,0],
+    [0,0,1,0,0],
+    [0,0,1,0,0],
+    [0,0,1,0,0],
+  ],
+  "N": [
+    [1,0,0,0,1],
+    [1,1,0,0,1],
+    [1,0,1,0,1],
+    [1,0,0,1,1],
+    [1,0,0,0,1],
+    [1,0,0,0,1],
+  ],
+};
+
+const BUTTON_WORD_SEQUENCES: Record<string, string[]> = {
+  fold: ["F", "O", "L", "D"],
+  call: ["C", "A", "L", "L"],
+  check: ["C", "H", "E", "C", "K"],
+  raise: ["R", "A", "I", "S", "E"],
+  bet: ["B", "E", "T"],
+  allin: ["A", "L", "L", "I", "N"],
+};
+
+const BUTTON_PATTERNS: Record<string, { colors: { r: number; g: number; b: number; tolerance: number }; textPattern: string[]; wordKey?: string }> = {
   fold: {
     colors: { r: 180, g: 60, b: 60, tolerance: 40 },
     textPattern: ["FOLD", "Fold", "fold", "PASSER"],
+    wordKey: "fold",
   },
   call: {
     colors: { r: 60, g: 150, b: 60, tolerance: 40 },
-    textPattern: ["CALL", "Call", "call", "SUIVRE", "CHECK", "Check", "check"],
+    textPattern: ["CALL", "Call", "call", "SUIVRE"],
+    wordKey: "call",
+  },
+  check: {
+    colors: { r: 60, g: 150, b: 60, tolerance: 40 },
+    textPattern: ["CHECK", "Check", "check"],
+    wordKey: "check",
   },
   raise: {
     colors: { r: 60, g: 100, b: 180, tolerance: 40 },
-    textPattern: ["RAISE", "Raise", "raise", "RELANCER", "BET", "Bet", "bet"],
+    textPattern: ["RAISE", "Raise", "raise", "RELANCER"],
+    wordKey: "raise",
+  },
+  bet: {
+    colors: { r: 60, g: 100, b: 180, tolerance: 40 },
+    textPattern: ["BET", "Bet", "bet"],
+    wordKey: "bet",
   },
   allIn: {
     colors: { r: 200, g: 80, b: 200, tolerance: 40 },
     textPattern: ["ALL IN", "All In", "all in", "ALLIN", "TAPIS"],
+    wordKey: "allin",
   },
 };
 
@@ -209,14 +355,12 @@ function patternToTemplate(pattern: number[][], scale: number = 1): Uint8Array {
 
 function generateRankTemplates(): Map<string, Template[]> {
   const templates = new Map<string, Template[]>();
-  // Ajout de demi-scales pour meilleure couverture
   const scales = [2, 2.5, 3, 3.5, 4, 4.5, 5];
 
   for (const [rank, pattern] of Object.entries(CARD_RANK_PATTERNS)) {
     const variants: Template[] = [];
     
     for (const scale of scales) {
-      const roundedScale = Math.round(scale);
       const scaleName = scale % 1 === 0 ? `${scale}` : `${scale}`.replace('.', '_');
       
       variants.push({
@@ -231,6 +375,90 @@ function generateRankTemplates(): Map<string, Template[]> {
   }
 
   return templates;
+}
+
+function generateButtonTextTemplates(): Map<string, Template[]> {
+  const templates = new Map<string, Template[]>();
+  const scales = [1.5, 2, 2.5, 3];
+
+  for (const [char, pattern] of Object.entries(BUTTON_TEXT_TEMPLATES)) {
+    const variants: Template[] = [];
+    
+    for (const scale of scales) {
+      const scaleName = scale % 1 === 0 ? `${scale}` : `${scale}`.replace('.', '_');
+      
+      variants.push({
+        name: `btn_${char}_scale${scaleName}`,
+        width: Math.round(pattern[0].length * scale),
+        height: Math.round(pattern.length * scale),
+        data: patternToTemplate(pattern, scale),
+      });
+    }
+
+    templates.set(char, variants);
+  }
+
+  return templates;
+}
+
+function matchWordSequenceSlidingWindow(
+  grayscale: Uint8Array,
+  imageWidth: number,
+  imageHeight: number,
+  region: ScreenRegion,
+  wordKey: string,
+  buttonTextTemplates: Map<string, Template[]>,
+  threshold: number = 0.4
+): { found: boolean; confidence: number; charMatches: number; distinctChars: number } {
+  const sequence = BUTTON_WORD_SEQUENCES[wordKey];
+  if (!sequence) {
+    return { found: false, confidence: 0, charMatches: 0, distinctChars: 0 };
+  }
+
+  const textRegion: ScreenRegion = {
+    x: region.x + Math.floor(region.width * 0.1),
+    y: region.y + Math.floor(region.height * 0.15),
+    width: Math.floor(region.width * 0.8),
+    height: Math.floor(region.height * 0.7),
+  };
+
+  let totalScore = 0;
+  let distinctCharsMatched = 0;
+  const uniqueChars = new Set(sequence);
+  const matchedChars: string[] = [];
+
+  for (const char of uniqueChars) {
+    const templates = buttonTextTemplates.get(char);
+    if (!templates) continue;
+
+    let bestCharScore = 0;
+    for (const template of templates) {
+      if (template.width > textRegion.width || template.height > textRegion.height) {
+        continue;
+      }
+
+      const match = findTemplateInRegion(
+        grayscale, imageWidth, imageHeight,
+        textRegion, template, "ncc", threshold
+      );
+
+      if (match && match.score > bestCharScore) {
+        bestCharScore = match.score;
+      }
+    }
+
+    if (bestCharScore > threshold) {
+      distinctCharsMatched++;
+      matchedChars.push(char);
+      totalScore += bestCharScore;
+    }
+  }
+
+  const minDistinctRequired = Math.max(2, Math.floor(uniqueChars.size * 0.5));
+  const found = distinctCharsMatched >= minDistinctRequired;
+  const confidence = distinctCharsMatched > 0 ? totalScore / distinctCharsMatched : 0;
+
+  return { found, confidence, charMatches: distinctCharsMatched, distinctChars: distinctCharsMatched };
 }
 
 export function normalizedCrossCorrelation(
@@ -427,11 +655,13 @@ export function findTemplateInRegion(
 
 export class TemplateMatcher {
   private rankTemplates: Map<string, Template[]>;
+  private buttonTextTemplates: Map<string, Template[]>;
   private customTemplates: Map<string, Template> = new Map();
   private debugMode: boolean = false;
 
   constructor() {
     this.rankTemplates = generateRankTemplates();
+    this.buttonTextTemplates = generateButtonTextTemplates();
   }
 
   enableDebugMode(enabled: boolean = true): void {
@@ -524,17 +754,74 @@ export class TemplateMatcher {
     };
   }
 
+  matchButtonWithTemplate(
+    imageBuffer: Buffer,
+    imageWidth: number,
+    imageHeight: number,
+    region: ScreenRegion,
+    buttonType: keyof typeof BUTTON_PATTERNS,
+    channels: number = 4
+  ): { found: boolean; confidence: number; method: "color" | "template" | "combined"; region?: ScreenRegion } {
+    const pattern = BUTTON_PATTERNS[buttonType];
+    if (!pattern) {
+      return { found: false, confidence: 0, method: "color" };
+    }
+
+    const colorResult = this.matchButton(imageBuffer, imageWidth, imageHeight, region, buttonType, channels);
+
+    if (!pattern.wordKey) {
+      return { ...colorResult, method: "color" };
+    }
+
+    const grayscale = toGrayscale(imageBuffer, imageWidth, imageHeight, channels);
+
+    const textResult = matchWordSequenceSlidingWindow(
+      grayscale,
+      imageWidth,
+      imageHeight,
+      region,
+      pattern.wordKey,
+      this.buttonTextTemplates,
+      0.35
+    );
+
+    if (colorResult.found && textResult.found && textResult.distinctChars >= 2) {
+      const combinedConfidence = (colorResult.confidence * 0.5 + textResult.confidence * 0.5);
+      return {
+        found: true,
+        confidence: combinedConfidence,
+        method: "combined",
+        region,
+      };
+    }
+
+    if (colorResult.found && colorResult.confidence > 0.3) {
+      return { ...colorResult, method: "color" };
+    }
+
+    return { found: false, confidence: 0, method: "color" };
+  }
+
   detectAllButtons(
     imageBuffer: Buffer,
     imageWidth: number,
     imageHeight: number,
     searchRegion: ScreenRegion,
     channels: number = 4
-  ): Array<{ type: string; confidence: number; region: ScreenRegion }> {
-    const buttons: Array<{ type: string; confidence: number; region: ScreenRegion }> = [];
+  ): Array<{ type: string; confidence: number; region: ScreenRegion; method?: string }> {
+    const buttons: Array<{ type: string; confidence: number; region: ScreenRegion; method?: string }> = [];
 
     const buttonWidth = Math.floor(searchRegion.width / 4);
     const buttonHeight = Math.floor(searchRegion.height);
+
+    const buttonPriority: Record<string, number> = {
+      fold: 1,
+      call: 2,
+      check: 3,
+      raise: 4,
+      bet: 5,
+      allIn: 6,
+    };
 
     for (let i = 0; i < 4; i++) {
       const buttonRegion: ScreenRegion = {
@@ -544,18 +831,44 @@ export class TemplateMatcher {
         height: buttonHeight,
       };
 
+      const candidates: Array<{ type: string; confidence: number; method: string; priority: number }> = [];
+
       for (const buttonType of Object.keys(BUTTON_PATTERNS) as Array<keyof typeof BUTTON_PATTERNS>) {
-        const result = this.matchButton(imageBuffer, imageWidth, imageHeight, buttonRegion, buttonType, channels);
+        const result = this.matchButtonWithTemplate(imageBuffer, imageWidth, imageHeight, buttonRegion, buttonType, channels);
         
-        if (result.found && result.confidence > 0.3) {
-          buttons.push({
+        if (result.found && result.confidence > 0.25) {
+          candidates.push({
             type: buttonType,
             confidence: result.confidence,
-            region: buttonRegion,
+            method: result.method,
+            priority: buttonPriority[buttonType] ?? 99,
           });
-          break;
         }
       }
+
+      if (candidates.length > 0) {
+        candidates.sort((a, b) => {
+          const confDiff = b.confidence - a.confidence;
+          if (Math.abs(confDiff) < 0.1) {
+            return a.priority - b.priority;
+          }
+          return confDiff;
+        });
+
+        const best = candidates[0];
+        buttons.push({
+          type: best.type,
+          confidence: best.confidence,
+          region: buttonRegion,
+          method: best.method,
+        });
+      }
+    }
+
+    if (this.debugMode && buttons.length > 0) {
+      console.log(`[TemplateMatcher] Detected ${buttons.length} buttons:`, 
+        buttons.map(b => `${b.type}(${b.method}, ${(b.confidence * 100).toFixed(1)}%)`).join(", ")
+      );
     }
 
     return buttons;
