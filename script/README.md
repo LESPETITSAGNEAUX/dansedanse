@@ -2,16 +2,17 @@
 
 ## Installation rapide sur Windows 11
 
-### Methode 1 : Installation automatique (recommandee)
+### Methode 1 : Installation Complete (RECOMMANDEE)
 
 1. **Telecharger le projet** depuis Replit (ZIP) et extraire dans `C:\Users\VotreNom\poker-bot`
-2. **Clic droit** sur `script\INSTALL.bat` > **Executer en tant qu'administrateur**
-3. **Suivre les instructions** a l'ecran (installation ~10-15 min)
-4. **Demarrer** avec `start-bot.bat`
+2. **Clic droit** sur `script\SETUP.bat` > **Executer en tant qu'administrateur**
+3. **Suivre les instructions** a l'ecran (installation ~15-30 min)
+4. **Demarrer** avec `START-BOT.bat`
 
-Le script installe automatiquement :
-- Tous les prerequis (Node.js, PostgreSQL, Git, Build Tools)
-- Les dependances npm et modules natifs
+Le script `setup.ps1` installe automatiquement :
+- Tous les prerequis (Node.js, Python, PostgreSQL, Git, Build Tools)
+- Les dependances npm et modules natifs (robotjs, sharp, opencv)
+- Compile le module DXGI pour capture rapide
 - Initialise la base de donnees
 
 ### Methode 2 : PowerShell direct
@@ -19,27 +20,38 @@ Le script installe automatiquement :
 ```powershell
 # Ouvrir PowerShell en Administrateur
 Set-ExecutionPolicy Bypass -Scope Process -Force
-.\script\install-windows.ps1
+.\script\setup.ps1
 ```
 
 #### Options du script PowerShell
 
 ```powershell
 # Installation personnalisee
-.\install-windows.ps1 -InstallPath "D:\PokerBot" -PostgresPassword "MonMotDePasse"
+.\setup.ps1 -InstallPath "D:\PokerBot" -PostgresPassword "MonMotDePasse"
 
 # Sauter certaines installations
-.\install-windows.ps1 -SkipPostgres   # Si PostgreSQL deja installe
-.\install-windows.ps1 -SkipNodeJs     # Si Node.js deja installe
+.\setup.ps1 -SkipPostgres   # Si PostgreSQL deja installe
+.\setup.ps1 -SkipNodeJs     # Si Node.js deja installe
+.\setup.ps1 -SkipPython     # Si Python deja installe
+.\setup.ps1 -SkipDXGI       # Ne pas compiler DXGI
+
+# Demarrer le bot apres installation
+.\setup.ps1 -LaunchBot
 ```
 
-### Methode 3 : Prerequis d'abord, projet ensuite
+### Methode 3 : Installation basique (ancien script)
+
+```powershell
+.\script\install-windows.ps1
+```
+
+### Methode 4 : Prerequis d'abord, projet ensuite
 
 Si vous voulez installer les prerequis AVANT de telecharger le projet :
 
-1. Executer `INSTALL.bat` (il creera le dossier et le fichier .env)
+1. Executer `SETUP.bat` (il creera le dossier et le fichier .env)
 2. Telecharger le projet et l'extraire dans le dossier indique
-3. Re-executer `INSTALL.bat` (il detectera le projet et installera les dependances)
+3. Re-executer `SETUP.bat` (il detectera le projet et installera les dependances)
 
 ---
 
@@ -47,21 +59,37 @@ Si vous voulez installer les prerequis AVANT de telecharger le projet :
 
 | Fichier | Description |
 |---------|-------------|
-| `INSTALL.bat` | Lanceur d'installation (double-clic) |
-| `install-windows.ps1` | Script PowerShell complet |
+| `SETUP.bat` | **Installation complete** (recommande) |
+| `setup.ps1` | Script PowerShell v2.0 complet |
+| `INSTALL.bat` | Lanceur installation basique |
+| `install-windows.ps1` | Script PowerShell v1.0 |
 | `start-bot.bat` | Demarrer le bot |
-| `check-modules.bat` | Verifier les modules natifs |
+| `check-modules.bat` | Verifier tous les modules |
 
 ---
 
 ## Ce que le script installe
 
+### Outils de base
 1. **Chocolatey** - Gestionnaire de paquets Windows
 2. **Node.js 20 LTS** - Runtime JavaScript
-3. **PostgreSQL 16** - Base de donnees
-4. **Git** - Controle de version
-5. **Visual Studio Build Tools** - Compilation modules natifs
-6. **Python 3** - Dependance pour certains modules
+3. **Git** - Controle de version
+
+### Pour la compilation native
+4. **Python 3.11** - Avec OpenCV et numpy
+5. **Visual Studio 2022 Build Tools** - Compilateur C++
+6. **node-gyp** - Compilation modules Node.js natifs
+
+### Base de donnees
+7. **PostgreSQL 16** - Base de donnees
+
+### Modules natifs compiles
+8. **robotjs** - Controle souris/clavier
+9. **screenshot-desktop** - Capture ecran
+10. **node-window-manager** - Detection fenetres
+11. **sharp** - Traitement images rapide
+12. **tesseract.js** - OCR (reconnaissance texte)
+13. **DXGI Desktop Duplication** - Capture ultra-rapide (~20ms)
 
 ---
 
