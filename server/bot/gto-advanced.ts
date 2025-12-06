@@ -1001,7 +1001,37 @@ export class AdvancedGtoAdapter implements GtoAdapter {
       wasThreeBet: boolean; 
       wasCbet: boolean; 
       position: string;
+      betSize?: number;
+      potSize?: number;
+    }
+  ): Promise<void> {
+    this.playerProfiler.updateProfile(this.currentVillainId, action, context);
+    
+    // Mettre à jour opponent profiler
+    const { getOpponentProfiler } = await import("./opponent-profiler");
+    const opponentProfiler = getOpponentProfiler();
+    
+    opponentProfiler.updateOpponentAction(
+      this.currentVillainId,
+      this.currentVillainSeat,
+      {
+        action,
+        street: context.street,
+        betSize: context.betSize,
+        facingBet: context.facingBet ? (context.betSize || 0) : 0,
+        potSize: context.potSize || 0,
+        wasPreflop: context.street === "preflop",
+        wasCbet: context.wasCbet,
+      }
+    );
+  }
 
+  async recordHandResult(result: number, potSize: number): Promise<void> {
+    const { getOpponentProfiler } = await import("./opponent-profiler");
+    const opponentProfiler = getOpponentProfiler();
+    
+    opponentProfiler.recordHandResult(this.currentVillainId, result, potSize);
+  }
 
   private constructVillainRange(context: HandContext, profile: PlayerProfile): RangeDefinition | null {
     // Construire une range réaliste basée sur le profil et l'action
@@ -1056,39 +1086,7 @@ export class AdvancedGtoAdapter implements GtoAdapter {
     return null;
   }
 
-      betSize?: number;
-      potSize?: number;
-    }
-  ): Promise<void> {
-    this.playerProfiler.updateProfile(this.currentVillainId, action, context);
-    
-    // Mettre à jour opponent profiler
-    const { getOpponentProfiler } = await import("./opponent-profiler");
-    const opponentProfiler = getOpponentProfiler();
-    
-    opponentProfiler.updateOpponentAction(
-      this.currentVillainId,
-      this.currentVillainSeat,
-      {
-        action,
-        street: context.street,
-        betSize: context.betSize,
-        facingBet: context.facingBet ? (context.betSize || 0) : 0,
-        potSize: context.potSize || 0,
-        wasPreflop: context.street === "preflop",
-        wasCbet: context.wasCbet,
-      }
-    );
-  }
-
-  async recordHandResult(result: number, potSize: number): Promise<void> {
-    const { getOpponentProfiler } = await import("./opponent-profiler");
-    const opponentProfiler = getOpponentProfiler();
-    
-    opponentProfiler.recordHandResult(this.currentVillainId, result, potSize);
-  }
-
-  async getRecommendation(context: HandContext): Promise<GtoRecommendation> {
+      async getRecommendation(context: HandContext): Promise<GtoRecommendation> {
     // Check cache first
     const { getGtoCache } = await import("./gto-cache");
     const cache = getGtoCache();
