@@ -542,16 +542,24 @@ export function detectSuitByHSV(
 ): { suit: string | null; confidence: number } {
   const results: Array<{ suit: string; score: number }> = [];
 
-  const heartsResult = detectColorHSV(imageBuffer, width, height, region, POKER_SUIT_HSV_RANGES.hearts, channels);
-  const heartsAltResult = detectColorHSV(imageBuffer, width, height, region, POKER_SUIT_HSV_RANGES.hearts_alt, channels);
+  const processedImageBuffer = preprocessForOCR(imageBuffer, width, height, {
+    blurRadius: 1,
+    contrastFactor: 1.5,
+    thresholdValue: 128,
+    adaptiveThreshold: true,
+    noiseReductionLevel: "medium",
+  }, channels);
+
+  const heartsResult = detectColorHSV(processedImageBuffer, width, height, region, POKER_SUIT_HSV_RANGES.hearts, channels);
+  const heartsAltResult = detectColorHSV(processedImageBuffer, width, height, region, POKER_SUIT_HSV_RANGES.hearts_alt, channels);
   const heartsTotal = heartsResult.percentage + heartsAltResult.percentage;
 
-  const diamondsResult = detectColorHSV(imageBuffer, width, height, region, POKER_SUIT_HSV_RANGES.diamonds, channels);
-  const diamondsAltResult = detectColorHSV(imageBuffer, width, height, region, POKER_SUIT_HSV_RANGES.diamonds_alt, channels);
+  const diamondsResult = detectColorHSV(processedImageBuffer, width, height, region, POKER_SUIT_HSV_RANGES.diamonds, channels);
+  const diamondsAltResult = detectColorHSV(processedImageBuffer, width, height, region, POKER_SUIT_HSV_RANGES.diamonds_alt, channels);
   const diamondsTotal = diamondsResult.percentage + diamondsAltResult.percentage;
 
-  const clubsResult = detectColorHSV(imageBuffer, width, height, region, POKER_SUIT_HSV_RANGES.clubs, channels);
-  const spadesResult = detectColorHSV(imageBuffer, width, height, region, POKER_SUIT_HSV_RANGES.spades, channels);
+  const clubsResult = detectColorHSV(processedImageBuffer, width, height, region, POKER_SUIT_HSV_RANGES.clubs, channels);
+  const spadesResult = detectColorHSV(processedImageBuffer, width, height, region, POKER_SUIT_HSV_RANGES.spades, channels);
 
   const redThreshold = 5;
   const blackThreshold = 10;
@@ -577,7 +585,7 @@ export function detectSuitByHSV(
 
   if (results.length >= 2 && 
       (results[0].suit === "hearts" || results[0].suit === "diamonds") &&
-      (results[0].suit === "hearts" || results[0].suit === "diamonds")) {
+      (results[1].suit === "hearts" || results[1].suit === "diamonds")) {
     const shapeScore = analyzeShapeForSuit(imageBuffer, width, height, region, channels);
     if (shapeScore.preferredSuit) {
       return { suit: shapeScore.preferredSuit, confidence: shapeScore.confidence };
@@ -682,7 +690,7 @@ export function getHistogram(
 
 export function calculateOtsuThreshold(histogram: Uint32Array): number {
   const total = histogram.reduce((sum, val) => sum + val, 0);
-  
+
   let sumB = 0;
   let wB = 0;
   let maximum = 0;
@@ -763,7 +771,7 @@ export class ImageProcessor {
     }
 
     let processed = applyGaussianBlur(extracted, region.width, region.height, 1, channels);
-    
+
     if (this.debugMode) {
       this.debugBuffer.push({ 
         name: "02_blurred", 
@@ -774,7 +782,7 @@ export class ImageProcessor {
     }
 
     processed = applyContrastStretching(processed, region.width, region.height, 1.3, channels);
-    
+
     if (this.debugMode) {
       this.debugBuffer.push({ 
         name: "03_contrast", 
@@ -790,7 +798,7 @@ export class ImageProcessor {
     const optimalThreshold = calculateOtsuThreshold(histogram);
 
     processed = applyThreshold(processed, region.width, region.height, optimalThreshold, channels);
-    
+
     if (this.debugMode) {
       this.debugBuffer.push({ 
         name: "04_threshold", 

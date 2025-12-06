@@ -1,5 +1,12 @@
 import { ScreenRegion } from "./platform-adapter";
 import { toGrayscale, extractRegion, preprocessForOCR, ImageProcessingConfig, DEFAULT_PROCESSING_CONFIG } from "./image-processing";
+import * as tf from '@tensorflow/tfjs-node';
+import sharp from 'sharp';
+
+interface CardRankPrediction {
+  rank: string;
+  confidence: number;
+}
 
 export interface NeuralNetworkLayer {
   type: "conv" | "pool" | "dense" | "flatten" | "relu" | "softmax";
@@ -169,6 +176,8 @@ function euclideanDistance(a: number[], b: number[]): number {
 }
 
 export class CardRankClassifier {
+  private model: tf.LayersModel | null = null;
+  private readonly RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A'];
   private config: CardClassifierConfig;
   private rankVectors: Map<string, number[]>;
   private trainedWeights: Float32Array | null = null;
@@ -181,8 +190,40 @@ export class CardRankClassifier {
     this.rankVectors = new Map(Object.entries(RANK_FEATURE_VECTORS));
   }
 
+  async initialize(): Promise<void> {
+    // TODO: Charger un modèle pré-entraîné ou entraîner
+    // Pour l'instant, on utilise un placeholder
+    console.log("[CardRankClassifier] Initialized (placeholder - training needed)");
+  }
+
+  async predictRank(imageBuffer: Buffer, width: number, height: number): Promise<CardRankPrediction> {
+    // Prétraitement de l'image
+    const processed = await sharp(imageBuffer)
+      .resize(28, 28) // Taille standard pour CNN léger
+      .grayscale()
+      .normalize()
+      .raw()
+      .toBuffer();
+
+    // TODO: Utiliser le modèle CNN
+    // Pour l'instant, retour à l'OCR avec meilleure confiance
+    return {
+      rank: 'A', // Placeholder
+      confidence: 0.5,
+    };
+  }
+
+  async trainFromDataset(datasetPath: string): Promise<void> {
+    // TODO: Implémenter l'entraînement
+    console.log(`[CardRankClassifier] Training from ${datasetPath}`);
+  }
+
   enableDebugMode(enabled: boolean = true): void {
     this.debugMode = enabled;
+    if (!enabled) {
+      this.lastFeatures = null;
+      this.lastScores = null;
+    }
   }
 
   getDebugInfo(): { features: Float32Array | null; scores: Map<string, number> | null } {
@@ -370,11 +411,11 @@ export class CardRankClassifier {
 
     for (const sample of samples) {
       const features = extractFeatures(
-        sample.image, 
-        sample.width, 
-        sample.height, 
-        sample.region, 
-        this.config, 
+        sample.image,
+        sample.width,
+        sample.height,
+        sample.region,
+        this.config,
         sample.channels || 4
       );
 

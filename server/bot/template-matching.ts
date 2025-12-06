@@ -596,3 +596,50 @@ export class TemplateMatcher {
 }
 
 export const templateMatcher = new TemplateMatcher();
+import sharp from 'sharp';
+
+export interface TemplateMatch {
+  x: number;
+  y: number;
+  confidence: number;
+}
+
+export class TemplateMatcher {
+  private templates: Map<string, Buffer> = new Map();
+  
+  async loadTemplate(name: string, path: string): Promise<void> {
+    const template = await sharp(path).raw().toBuffer();
+    this.templates.set(name, template);
+  }
+  
+  async matchTemplate(
+    imageBuffer: Buffer,
+    templateName: string,
+    threshold: number = 0.8
+  ): Promise<TemplateMatch | null> {
+    const template = this.templates.get(templateName);
+    if (!template) {
+      throw new Error(`Template ${templateName} not loaded`);
+    }
+    
+    // TODO: Implémenter cross-correlation
+    // Pour l'instant, placeholder
+    return null;
+  }
+  
+  async matchButton(
+    screenshotBuffer: Buffer,
+    buttonType: 'FOLD' | 'CHECK' | 'CALL' | 'RAISE' | 'BET'
+  ): Promise<TemplateMatch | null> {
+    return this.matchTemplate(screenshotBuffer, `button_${buttonType.toLowerCase()}`);
+  }
+}
+
+let matcherInstance: TemplateMatcher | null = null;
+
+export function getTemplateMatcher(): TemplateMatcher {
+  if (!matcherInstance) {
+    matcherInstance = new TemplateMatcher();
+  }
+  return matcherInstance;
+}
