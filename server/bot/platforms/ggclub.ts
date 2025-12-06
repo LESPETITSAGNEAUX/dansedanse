@@ -142,6 +142,9 @@ export class GGClubAdapter extends PlatformAdapter {
   private pokerOCREngine: PokerOCREngine | null = null;
   private mlInitPromise: Promise<void> | null = null;
   private mlConfidenceThreshold: number = 0.75;
+  private lastGameState: GameTableState | null = null; // Added for caching game state
+  private lastKnownPot: number = 0; // Added for pot value tracking
+  private lastKnownStreet: string = "preflop"; // Added for street tracking
 
   constructor() {
     super("GGClub", {
@@ -610,8 +613,8 @@ export class GGClubAdapter extends PlatformAdapter {
     // Si rien n'a changé dans les régions critiques, réutiliser le cache
     const hasCriticalChanges = this.criticalRegions.some(r => diff.changedRegions.includes(r));
 
-    if (!hasCriticalChanges && (this as any).lastGameState) {
-      return (this as any).lastGameState;
+    if (!hasCriticalChanges && this.lastGameState) {
+      return this.lastGameState;
     }
 
     // Sinon, recalculer uniquement les régions qui ont changé
@@ -620,19 +623,19 @@ export class GGClubAdapter extends PlatformAdapter {
     if (diff.changedRegions.includes('heroCardsRegion')) {
       tasks.push(this.detectHeroCards(windowHandle));
     } else {
-      tasks.push(Promise.resolve((this as any).lastGameState?.heroCards || []));
+      tasks.push(Promise.resolve(this.lastGameState?.heroCards || []));
     }
 
     if (diff.changedRegions.includes('communityCardsRegion')) {
       tasks.push(this.detectCommunityCards(windowHandle));
     } else {
-      tasks.push(Promise.resolve((this as any).lastGameState?.communityCards || []));
+      tasks.push(Promise.resolve(this.lastGameState?.communityCards || []));
     }
 
     if (diff.changedRegions.includes('potRegion')) {
       tasks.push(this.detectPot(windowHandle));
     } else {
-      tasks.push(Promise.resolve((this as any).lastGameState?.potSize || 0));
+      tasks.push(Promise.resolve(this.lastGameState?.potSize || 0));
     }
 
     // Players et actions toujours recalculés (changent fréquemment)
@@ -674,7 +677,7 @@ export class GGClubAdapter extends PlatformAdapter {
     };
 
     // Cache last state
-    (this as any).lastGameState = gameState;
+    this.lastGameState = gameState;
 
     this.emitPlatformEvent("game_state", { gameState });
 
@@ -1025,97 +1028,129 @@ export class GGClubAdapter extends PlatformAdapter {
       await this.mlInitPromise;
     }
 
-    // Level 0: ML OCR (primary if available)
-    if (this.pokerOCREngine && this.enableML) {
-      mlAttempted = true;
+    // Pipeline OCR hiérarchisé : ONNX → ML → Tesseract
+    const { getONNXOCREngine } = await import("../ml-ocr/onnx-ocr-engine");
+    const onnxEngine = await getONNXOCREngine();
+
+    let detected = 0;
+    let ocrMethod = 'none';
+
+    // 1. Essayer ONNX en priorité (plus rapide et précis)
+    if (onnxEngine) {
       try {
-        const regionBuffer = this.extractRegionBuffer(screenBuffer, imageWidth, imageHeight, region);
-        const mlResult = await this.pokerOCREngine.recognizeValue(
-          regionBuffer,
+        const potBuffer = this.extractRegionBuffer(screenBuffer, imageWidth, imageHeight, region);
+        const onnxResult = await onnxEngine.recognize(
+          potBuffer,
           region.width,
           region.height,
           'pot'
         );
-        const value = mlResult.value;
-        if (!isNaN(value) && value >= 0 && mlResult.confidence >= this.mlConfidenceThreshold) {
-          potValue = value;
-          console.log(`[GGClubAdapter] ML OCR pot: ${potValue} (conf: ${mlResult.confidence.toFixed(2)}, method: ${mlResult.method})`);
-        } else {
-          console.log(`[GGClubAdapter] ML OCR low confidence (${mlResult.confidence.toFixed(2)}) or invalid value, using fallback`);
+
+        if (onnxResult.confidence > 0.85) {
+          const parsed = this.parseAmount(onnxResult.text);
+          if (parsed > 0) {
+            detected = parsed;
+            ocrMethod = 'onnx';
+          }
         }
-      } catch (e) {
-        console.warn('[GGClubAdapter] ML OCR pot failed, falling back to Tesseract:', e);
+      } catch (error) {
+        console.warn('[GGClub] ONNX OCR failed, falling back:', error);
       }
     }
 
-    // Level 1: OCR principal (fallback)
-    if (potValue === 0 || isNaN(potValue)) {
-      const ocrResult = await this.performOCR(screenBuffer, region);
-      potValue = this.parseMoneyValue(ocrResult.text);
-      if (isNaN(potValue)) potValue = 0;
+    // 2. Fallback ML OCR si ONNX échoue
+    if (detected === 0) {
+      const pokerOCREngine = await getPokerOCREngine({
+        useMLPrimary: true,
+        useTesseractFallback: true,
+        confidenceThreshold: 0.75,
+        collectTrainingData: true,
+      });
+
+      if (pokerOCREngine) {
+        const potBuffer = this.extractRegionBuffer(screenBuffer, imageWidth, imageHeight, region);
+        const potResult = await pokerOCREngine.recognizeValue(
+          potBuffer,
+          region.width,
+          region.height,
+          'pot'
+        );
+
+        if (potResult.confidence > 0.5) {
+          detected = potResult.value;
+          ocrMethod = potResult.method;
+        }
+      }
     }
 
-    // Level 2: Validation heuristique
-    if (potValue > 0) {
-      const players = await this.detectPlayers(windowHandle);
-      const totalBets = players.reduce((sum, p) => sum + p.currentBet, 0);
+    // 3. Fallback Tesseract si tout échoue
+    if (detected === 0) {
+      const tesseractResult = await this.performOCR(screenBuffer, region);
+      const parsed = this.parseAmount(tesseractResult.text);
+      if (parsed > 0 && tesseractResult.confidence > 0.4) {
+        detected = parsed;
+        ocrMethod = 'tesseract';
+      }
+    }
 
-      // Le pot doit être >= somme des bets actuels
-      if (potValue < totalBets * 0.8) {
-        console.warn(`[GGClubAdapter] Pot OCR suspect: ${potValue} < bets total ${totalBets}, recalculating...`);
 
-        // Level 3: Fallback - estimer le pot depuis les bets
-        potValue = Math.max(potValue, totalBets);
+    // Validation et logging
+    if (detected > 0) {
+      this.lastGameState.potSize = detected; // Use this.lastGameState
+
+      // Logger les performances OCR
+      if (ocrMethod !== 'none') {
+        console.log(`[GGClub] Pot detected: ${detected} (method: ${ocrMethod})`);
       }
 
-      // Validation supplémentaire: le pot ne peut pas diminuer sauf nouveau coup
-      const lastPot = (this as any).lastKnownPot || 0;
-      const lastStreet = (this as any).lastKnownStreet || "preflop";
-      const communityCards = await this.detectCommunityCards(windowHandle);
-      const currentStreet = this.determineStreet(communityCards.length);
-
-      // Reset si nouveau coup (retour preflop depuis river/turn/flop)
-      const isNewHand = currentStreet === "preflop" && lastStreet !== "preflop";
-
-      if (!isNewHand && potValue < lastPot * 0.9) {
-        console.warn(`[GGClubAdapter] Pot incohérent (diminué): ${potValue} vs last ${lastPot}, keeping last value`);
-        potValue = lastPot;
-      }
-
-      (this as any).lastKnownPot = isNewHand ? potValue : Math.max(potValue, lastPot);
-      (this as any).lastKnownStreet = currentStreet;
+      return detected;
     }
 
     // Level 4: Si toujours 0, OCR alternatif avec preprocessing différent
-    if (potValue === 0) {
-      console.warn("[GGClubAdapter] OCR pot failed, trying alternative preprocessing");
-      const window = this.activeWindows.get(`ggclub_${windowHandle}`); // Use windowHandle
-      const preprocessed = preprocessForOCR(
-        screenBuffer,
-        window?.width || 880,
-        window?.height || 600,
-        {
-          blurRadius: 0,
-          contrastFactor: 1.8,
-          thresholdValue: 140,
-          adaptiveThreshold: false,
-          noiseReductionLevel: "low",
-        }
-      );
+    console.warn("[GGClubAdapter] OCR pot failed, trying alternative preprocessing");
+    const window = this.activeWindows.get(`ggclub_${windowHandle}`); // Use windowHandle
+    const preprocessed = preprocessForOCR(
+      screenBuffer,
+      window?.width || 880,
+      window?.height || 600,
+      {
+        blurRadius: 0,
+        contrastFactor: 1.8,
+        thresholdValue: 140,
+        adaptiveThreshold: false,
+        noiseReductionLevel: "low",
+      }
+    );
 
-      const altOcrResult = await this.performOCR(preprocessed, region);
-      potValue = this.parseMoneyValue(altOcrResult.text);
+    const altOcrResult = await this.performOCR(preprocessed, region);
+    potValue = this.parseAmount(altOcrResult.text);
+
+    if (potValue > 0) {
+      this.lastGameState.potSize = potValue; // Use this.lastGameState
+      console.log(`[GGClub] Pot detected with alt preprocessing: ${potValue}`);
+      return potValue;
     }
 
-    return potValue;
+    return 0; // Retourner 0 si aucune détection n'a réussi
   }
 
-  private parseMoneyValue(text: string): number {
+  private parseAmount(text: string): number {
     const cleaned = text.replace(/[^0-9.,]/g, "");
     const normalized = cleaned.replace(",", ".");
-    const value = parseFloat(normalized);
-    return isNaN(value) ? 0 : value;
+    // Gérer les cas où le point est utilisé comme séparateur de milliers
+    const parts = normalized.split('.');
+    if (parts.length > 2) {
+      // Supprimer les points de milliers
+      const integerPart = parts.slice(0, -1).join('');
+      const decimalPart = parts[parts.length - 1];
+      const value = parseFloat(`${integerPart}.${decimalPart}`);
+      return isNaN(value) ? 0 : value;
+    } else {
+      const value = parseFloat(normalized);
+      return isNaN(value) ? 0 : value;
+    }
   }
+
 
   async detectPlayers(windowHandle: number): Promise<DetectedPlayer[]> {
     const screenBuffer = await this.captureScreen(windowHandle);
@@ -1175,13 +1210,13 @@ export class GGClubAdapter extends PlatformAdapter {
   private async recognizePlayerStack(screenBuffer: Buffer, region: ScreenRegion): Promise<number | null> {
     const stackRegion = { ...region, y: region.y + 20, height: 20 };
     const ocrResult = await this.performOCR(screenBuffer, stackRegion);
-    return this.parseMoneyValue(ocrResult.text);
+    return this.parseAmount(ocrResult.text);
   }
 
   private async recognizePlayerBet(screenBuffer: Buffer, region: ScreenRegion): Promise<number | null> {
     const betRegion = { ...region, y: region.y + 40, height: 20 };
     const ocrResult = await this.performOCR(screenBuffer, betRegion);
-    return this.parseMoneyValue(ocrResult.text);
+    return this.parseAmount(ocrResult.text);
   }
 
   private async recognizePlayerStatus(
@@ -1490,7 +1525,7 @@ export class GGClubAdapter extends PlatformAdapter {
 
   private async extractButtonAmount(screenBuffer: Buffer, region: ScreenRegion): Promise<number | undefined> {
     const ocrResult = await this.performOCR(screenBuffer, region);
-    const amount = this.parseMoneyValue(ocrResult.text);
+    const amount = this.parseAmount(ocrResult.text);
     return amount > 0 ? amount : undefined;
   }
 
@@ -1669,10 +1704,10 @@ export class GGClubAdapter extends PlatformAdapter {
       const partialX = currentPos.x + (jitteredPos.x - currentPos.x) * 0.6;
       const partialY = currentPos.y + (jitteredPos.y - currentPos.y) * 0.6;
       await this.performMouseMove(windowHandle, partialX, partialY);
-      
+
       // Pause (hesitation)
       await this.addRandomDelay(hesitation.pauseDuration || 300);
-      
+
       // Micro-movements during hesitation
       for (let i = 0; i < hesitation.movements; i++) {
         const microJitterX = partialX + (Math.random() - 0.5) * 8;
@@ -1680,7 +1715,7 @@ export class GGClubAdapter extends PlatformAdapter {
         await this.performMouseMove(windowHandle, microJitterX, microJitterY);
         await this.addRandomDelay(80 + Math.random() * 120);
       }
-      
+
       // Resume movement to target
       await this.performMouseMove(windowHandle, jitteredPos.x, jitteredPos.y);
     } else {

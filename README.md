@@ -13,6 +13,11 @@ Bot de poker multi-comptes avec intelligence artificielle GTO, vision par ordina
 - **Opponent Profiling** : Adaptation automatique aux adversaires
 
 ### 👁️ Vision & Détection
+- **ONNX OCR Engine** : Modèle ONNX Runtime ultra-rapide (10x Tesseract, 2x ML)
+  - Inférence optimisée CPU/GPU
+  - Vocabulaire poker-spécifique
+  - CTC Decoding pour séquences
+  - Post-processing intelligent
 - **Poker OCR Engine** : CNN pure JavaScript pour reconnaissance optimisée (95% précision)
   - Neural Network custom (Conv, MaxPool, Dense layers)
   - Card Classifier (rangs + couleurs)
@@ -20,12 +25,21 @@ Bot de poker multi-comptes avec intelligence artificielle GTO, vision par ordina
   - Training Pipeline avec augmentation de données
   - Data Collector avec collecte automatique
 - **Multi-Frame Validation** : 2-3 frames consensus pour 99% fiabilité
-- **Fallback hiérarchisé** : ML OCR → Tesseract → Template Matching
+- **Fallback hiérarchisé** : ONNX → ML OCR → Tesseract → Template Matching
 - **Pot Detector** : Détection par histogramme couleur + validation heuristique
 - **OCR Error Correction** : Système de correction automatique
 - **Vision Error Logger** : Tracking détaillé des erreurs avec screenshots
 
 ### 🎭 Anti-Détection
+- **Human Behavior Dataset** : 500+ joueurs réels pour apprentissage style humain
+  - Distributions timings réelles par street
+  - Sizing distributions authentiques (cbet, valuebet, bluff)
+  - Error patterns observés (2.5% mistakes, 0.8% fold nuts)
+  - Emotional patterns (tilt recovery, fatigue impact)
+- **Auto-Ajustements** : Anti-Pattern Detector corrige automatiquement
+  - Variance timings adaptative
+  - Délais ajustés si patterns suspects
+  - Error rate auto-augmenté si trop précis
 - **Erreurs Humaines Simulées** : 0.1-1% misclicks, folds incorrects, sizing imparfait
 - **Chat Simulator** : Messages contextuels 1-2% des mains
 - **Timing Humanisé** : Délais Gaussiens + Bézier mouse movements

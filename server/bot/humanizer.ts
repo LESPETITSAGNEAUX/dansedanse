@@ -91,6 +91,40 @@ export class Humanizer {
   calculateThinkingDelay(actionType: string, handStrength: number, isComplexDecision: boolean, street: string = "preflop", potSize: number = 0): number {
     let { minDelayMs, maxDelayMs, thinkingTimeVariance, stealthModeEnabled, enableDynamicProfile } = this.settings;
 
+    // Auto-ajustements depuis anti-pattern detector
+    try {
+      const { getAntiPatternDetector } = await import("./anti-pattern-detector");
+      const detector = getAntiPatternDetector();
+      const adjustments = detector.suggestAutoAdjustments();
+      
+      if (adjustments.thinkingTimeVariance) {
+        thinkingTimeVariance = Math.max(thinkingTimeVariance, adjustments.thinkingTimeVariance);
+        console.log(`[Humanizer] Auto-adjusted variance to ${thinkingTimeVariance} (anti-pattern)`);
+      }
+      
+      if (adjustments.delayMultiplier) {
+        minDelayMs *= adjustments.delayMultiplier;
+        maxDelayMs *= adjustments.delayMultiplier;
+        console.log(`[Humanizer] Auto-adjusted delays x${adjustments.delayMultiplier} (anti-pattern)`);
+      }
+    } catch (error) {
+      // Anti-pattern detector non disponible
+    }
+
+    // Dataset de joueurs réels
+    try {
+      const { getHumanBehaviorLearner } = await import("./human-behavior-dataset");
+      const learner = getHumanBehaviorLearner();
+      const humanTiming = learner.generateHumanTiming(street, (minDelayMs + maxDelayMs) / 2);
+      
+      // Utiliser le timing réel si disponible
+      if (Math.random() < 0.7) { // 70% du temps, utiliser dataset
+        return Math.round(humanTiming);
+      }
+    } catch (error) {
+      // Dataset non disponible
+    }
+
     try {
       const safeModeModule = require("./safe-mode");
       const safeModeManager = safeModeModule.getSafeModeManager();
@@ -322,6 +356,24 @@ export class Humanizer {
       const profile = getPlayerProfile();
       modifiers = profile.getModifiers();
       state = profile.getState();
+    }
+    
+    // Utiliser dataset de joueurs réels pour sizing
+    try {
+      const { getHumanBehaviorLearner } = await import("./human-behavior-dataset");
+      const learner = getHumanBehaviorLearner();
+      
+      // Déterminer le type d'action
+      let actionType: 'cbet' | 'valuebet' | 'bluff' = 'valuebet';
+      if (street === 'flop' && Math.random() < 0.6) actionType = 'cbet';
+      else if (baseSizing < 0.5) actionType = 'bluff';
+      
+      // 60% du temps, utiliser distribution réelle
+      if (Math.random() < 0.6) {
+        return learner.generateHumanSizing(actionType, baseSizing);
+      }
+    } catch (error) {
+      // Dataset non disponible
     }
 
     // Variance de base: ±5% à ±15% selon street (volontairement imparfait)
