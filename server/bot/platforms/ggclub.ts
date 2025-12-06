@@ -513,14 +513,14 @@ export class GGClubAdapter extends PlatformAdapter {
   private async performAutoRecalibration(windowHandle: number): Promise<void> {
     try {
       const screenBuffer = await this.captureScreen(windowHandle);
-      const window = this.activeWindows.get(`ggclub_${windowHandle}`);
-      if (!window || !this.activeCalibration) return;
+      const tableWindow = this.activeWindows.get(`ggclub_${windowHandle}`);
+      if (!tableWindow || !this.activeCalibration) return;
 
       const result = await this.autoCalibration.performRecalibration(
         windowHandle,
         screenBuffer,
-        window.width,
-        window.height,
+        tableWindow.width,
+        tableWindow.height,
         this.activeCalibration
       );
 
@@ -726,6 +726,8 @@ export class GGClubAdapter extends PlatformAdapter {
     const startTime = Date.now();
     const screenBuffer = await this.captureScreen(windowHandle);
     const cards: CardInfo[] = [];
+    const tableWindow = this.activeWindows.get(`ggclub_${windowHandle}`);
+    const imageWidth = tableWindow?.width || 880;
 
     // Assuming screenLayout.heroCardsRegion is an array of ScreenRegions
     if (!Array.isArray(this.screenLayout.heroCardsRegion)) {
@@ -734,8 +736,8 @@ export class GGClubAdapter extends PlatformAdapter {
     }
 
     for (const region of this.screenLayout.heroCardsRegion) {
-      const rank = await this.recognizeCardRank(windowHandle, "hero", cards.length); // Pass windowHandle and index
-      const suit = await this.recognizeCardSuit(region, screenBuffer, this.screenLayout.width); // This might need adjustment based on new logic
+      const rank = await this.recognizeCardRank(windowHandle, "hero", cards.length);
+      const suit = await this.recognizeCardSuit(region, screenBuffer, imageWidth);
 
       if (rank && suit) {
         cards.push({
@@ -923,8 +925,9 @@ export class GGClubAdapter extends PlatformAdapter {
     // Fallback to existing methods if ML fails or is disabled
     if (!detectedRank) {
       try {
-        const window = Array.from(this.activeWindows.values())[0]; // This seems incorrect, should use the specific window
-        const width = window?.width || 880;
+        const tableWindow = this.activeWindows.get(`ggclub_${windowHandle}`);
+        const width = tableWindow?.width || 880;
+        const height = tableWindow?.height || 600;
 
         const rankSubRegion: ScreenRegion = {
           x: rankRegion.x,
@@ -984,9 +987,8 @@ export class GGClubAdapter extends PlatformAdapter {
 
     if (screenBuffer && imageWidth) {
       try {
-        const window = Array.from(this.activeWindows.values())[0]; // This might need to be specific to windowHandle
-        const width = imageWidth || window?.width || 880;
-        const height = window?.height || 600;
+        const width = imageWidth || 880;
+        const height = 600;
 
         const suitRegion: ScreenRegion = {
           x: region.x,
@@ -1108,11 +1110,11 @@ export class GGClubAdapter extends PlatformAdapter {
 
     // Level 4: Si toujours 0, OCR alternatif avec preprocessing différent
     console.warn("[GGClubAdapter] OCR pot failed, trying alternative preprocessing");
-    const window = this.activeWindows.get(`ggclub_${windowHandle}`); // Use windowHandle
+    const tableWindow = this.activeWindows.get(`ggclub_${windowHandle}`);
     const preprocessed = preprocessForOCR(
       screenBuffer,
-      window?.width || 880,
-      window?.height || 600,
+      tableWindow?.width || 880,
+      tableWindow?.height || 600,
       {
         blurRadius: 0,
         contrastFactor: 1.8,
@@ -1256,8 +1258,7 @@ export class GGClubAdapter extends PlatformAdapter {
     }
 
     try {
-      const window = Array.from(this.activeWindows.values())[0]; // This might need to be specific to windowHandle
-      const imageWidth = window?.width || 880;
+      const imageWidth = 880; // Use default width, buffer-based detection doesn't need window reference
 
       const colorRange = {
         r: colorSignature.r,
