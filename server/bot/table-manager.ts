@@ -229,7 +229,7 @@ export class TableSession extends EventEmitter {
     });
   }
 
-  async processActionRequired(data: {
+  async processActionRequired(context: {
     potSize: number;
     facingBet: number;
     isInPosition: boolean;
@@ -237,7 +237,7 @@ export class TableSession extends EventEmitter {
   }): Promise<{ action: string; humanizedAction: HumanizedAction }> {
     const startTime = Date.now();
     this.updateActivity();
-    this.updateState({ isHeroTurn: true, facingBet: data.facingBet, currentPot: data.potSize });
+    this.updateState({ isHeroTurn: true, facingBet: context.facingBet, currentPot: context.potSize });
 
     try {
       const handContext: HandContext = {
@@ -245,11 +245,11 @@ export class TableSession extends EventEmitter {
       communityCards: this.tableState.communityCards,
       street: this.tableState.currentStreet,
       heroPosition: this.tableState.heroPosition.toString(),
-      potSize: data.potSize,
+      potSize: context.potSize,
       heroStack: this.tableState.heroStack,
-      facingBet: data.facingBet,
-      numPlayers: data.numPlayers,
-      isInPosition: data.isInPosition,
+      facingBet: context.facingBet,
+      numPlayers: context.numPlayers,
+      isInPosition: context.isInPosition,
     };
 
     const gtoAdapter = getGtoAdapter();
@@ -268,8 +268,8 @@ export class TableSession extends EventEmitter {
 
     const humanizer = getHumanizer();
     const handStrength = this.estimateHandStrength();
-    const isStrongSpot = recommendation.confidence > 0.8 && data.facingBet < data.potSize * 0.5;
-    
+    const isStrongSpot = recommendation.confidence > 0.8 && context.facingBet < context.potSize * 0.5;
+
     // 1. Vérifier erreur intentionnelle (0.1-1%)
     const errorCheck = humanizer.shouldTriggerIntentionalError(handStrength);
     if (errorCheck.shouldError) {
@@ -305,7 +305,7 @@ export class TableSession extends EventEmitter {
         }
       }
     }
-    
+
     // 2. Fold marginal dans strong spot (0.5%)
     if (humanizer.shouldFoldMarginalInStrongSpot(handStrength, isStrongSpot)) {
       selectedAction = "FOLD";
@@ -315,7 +315,7 @@ export class TableSession extends EventEmitter {
         message: `[Anti-Detection] Fold conservateur main marginale en spot fort (0.5%)`,
       });
     }
-    
+
     // 3. Vérifier fold aléatoire rare (tilt/fatigue)
     if (humanizer.shouldTriggerRandomFold() && handStrength < 0.6 && handStrength > 0.3) {
       selectedAction = "FOLD";
@@ -336,7 +336,7 @@ export class TableSession extends EventEmitter {
       undefined,
       undefined,
       this.tableState.currentStreet,
-      data.potSize
+      context.potSize
     );
 
     this.updateState({ lastHumanizedAction: humanizedAction });
@@ -351,6 +351,26 @@ export class TableSession extends EventEmitter {
       message: `Humanizer: Délai ${humanizedAction.delay}ms (traité en ${processingTime}ms)`,
       metadata: { thinkingPauses: humanizedAction.thinkingPauses, processingTime },
     });
+
+    // Self-detection: enregistrer métriques
+    const actionTime = Date.now() - startTime;
+    const { getSelfDetectionAnalyzer } = await import("./self-detection");
+    const detector = getSelfDetectionAnalyzer();
+
+    const sizing = selectedAction.includes('%') 
+      ? parseFloat(selectedAction.match(/(\d+)%/)?.[1] || '0') / 100 
+      : 0;
+
+    const wasGtoOptimal = recommendation.bestAction === selectedAction;
+    const wasHumanError = humanizedAction.shouldMisclick || Math.random() < 0.01;
+
+    detector.recordAction(actionTime, sizing, wasGtoOptimal, wasHumanError);
+
+    // Alerter si patterns suspects
+    if (detector.shouldTriggerAlert()) {
+      const issues = detector.getCriticalIssues();
+      console.warn('[TableManager] ⚠️  Suspicious patterns detected:', issues.map(i => i.description).join(', '));
+    }
 
     return { action: selectedAction, humanizedAction };
     } catch (error) {
@@ -409,17 +429,17 @@ export class TableSession extends EventEmitter {
     // Simuler chat/notes (humanisation supplémentaire)
     const { getChatSimulator } = await import("./chat-simulator");
     const chatSim = getChatSimulator();
-    
+
     let eventType: "hand_won" | "hand_lost" | "bad_beat" | undefined;
     if (result > 0) eventType = "hand_won";
     else if (result < -20) eventType = "bad_beat"; // Grosse perte
     else if (result < 0) eventType = "hand_lost";
-    
+
     const chatMessage = chatSim.shouldSendChat({
       eventType,
       sessionDuration: (Date.now() - Date.now()) / 60000, // TODO: track réel
     });
-    
+
     if (chatMessage) {
       await storage.createActionLog({
         tableId: this.tableState.id,
@@ -432,7 +452,7 @@ export class TableSession extends EventEmitter {
     // Mettre à jour table dynamics
     const { getOpponentProfiler } = await import("./opponent-profiler");
     const opponentProfiler = getOpponentProfiler();
-    
+
     opponentProfiler.updateTableDynamics(
       this.tableState.id,
       {

@@ -887,7 +887,7 @@ export class GGClubAdapter extends PlatformAdapter {
     // Ensure screenLayout.heroCardsRegion and screenLayout.communityCardsRegion are arrays
     const heroCardRegions = Array.isArray(this.screenLayout.heroCardsRegion) ? this.screenLayout.heroCardsRegion : [this.screenLayout.heroCardsRegion];
     const communityCardRegions = Array.isArray(this.screenLayout.communityCardsRegion) ? this.screenLayout.communityCardsRegion : [this.screenLayout.communityCardsRegion];
-    
+
     const cardRegions = position === "hero" ? heroCardRegions : communityCardRegions;
 
     if (index >= cardRegions.length) {
@@ -1505,17 +1505,17 @@ export class GGClubAdapter extends PlatformAdapter {
     const clampedY = Math.max(0, Math.min(region.y, srcHeight - 1));
     const clampedWidth = Math.min(region.width, srcWidth - clampedX);
     const clampedHeight = Math.min(region.height, srcHeight - clampedY);
-    
+
     const output = Buffer.alloc(clampedWidth * clampedHeight * channels);
     const maxSrcIdx = screenBuffer.length;
-    
+
     for (let dy = 0; dy < clampedHeight; dy++) {
       for (let dx = 0; dx < clampedWidth; dx++) {
         const srcX = clampedX + dx;
         const srcY = clampedY + dy;
         const srcIdx = (srcY * srcWidth + srcX) * channels;
         const dstIdx = (dy * clampedWidth + dx) * channels;
-        
+
         if (srcIdx >= 0 && srcIdx + channels <= maxSrcIdx) {
           for (let c = 0; c < channels; c++) {
             output[dstIdx + c] = screenBuffer[srcIdx + c];
@@ -1523,8 +1523,27 @@ export class GGClubAdapter extends PlatformAdapter {
         }
       }
     }
-    
+
     return output;
+  }
+
+  private generateCacheKey(buffer: Buffer, width: number, height: number): string {
+    const sample = buffer.slice(0, Math.min(100, buffer.length));
+    let hash = 0;
+    for (let i = 0; i < sample.length; i++) {
+      hash = ((hash << 5) - hash + sample[i]) | 0;
+    }
+    return `${width}_${height}_${hash}`;
+  }
+
+  private generateImageHash(buffer: Buffer, region: ScreenRegion): string {
+    // Hash rapide pour détecter cartes identiques
+    const step = Math.floor(buffer.length / 50);
+    let hash = 0;
+    for (let i = 0; i < buffer.length; i += step) {
+      hash = ((hash << 5) - hash + buffer[i]) | 0;
+    }
+    return `card_${region.x}_${region.y}_${hash}`;
   }
 
   private async performOCR(screenBuffer: Buffer, region: ScreenRegion): Promise<OCRResult> {

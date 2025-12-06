@@ -446,6 +446,91 @@ export class Humanizer {
     return Math.random() < foldProb;
   }
 
+  /**
+   * Simule une mauvaise lecture du pot (erreur cognitive humaine)
+   * Retourne le pot perçu au lieu du pot réel
+   */
+  getMisperceivedPot(actualPot: number): number {
+    if (!this.settings.stealthModeEnabled) return actualPot;
+
+    let errorProb = 0.008; // 0.8% de base
+    let modifiers = { errorProbability: 0, fatigueLevel: 0 };
+
+    if (this.settings.enableDynamicProfile) {
+      const profile = getPlayerProfile();
+      modifiers.errorProbability = profile.getModifiers().errorProbability;
+      modifiers.fatigueLevel = profile.getState().fatigueLevel;
+      errorProb += modifiers.errorProbability;
+    }
+
+    if (Math.random() < errorProb) {
+      // Erreurs typiques humaines sur pot
+      const errorTypes = [
+        () => actualPot * randomInRange(0.85, 0.95), // Sous-estime
+        () => actualPot * randomInRange(1.05, 1.20), // Sur-estime
+        () => Math.round(actualPot / 10) * 10, // Arrondit à dizaine
+        () => actualPot + randomInRange(-actualPot * 0.15, actualPot * 0.15) // Approximation
+      ];
+      
+      return errorTypes[Math.floor(Math.random() * errorTypes.length)]();
+    }
+
+    return actualPot;
+  }
+
+  /**
+   * Approximation de range adverse (humain = pas parfait)
+   */
+  getApproximatedRange(gtoRange: string[], handStrength: number): string[] {
+    if (!this.settings.stealthModeEnabled) return gtoRange;
+
+    let modifiers = { rangeWidening: 1, errorProbability: 0 };
+    if (this.settings.enableDynamicProfile) {
+      modifiers = getPlayerProfile().getModifiers();
+    }
+
+    // Humains élargissent ou resserrent les ranges de façon imparfaite
+    const rangeError = modifiers.errorProbability * 0.3;
+    
+    if (Math.random() < rangeError) {
+      if (Math.random() < 0.5) {
+        // Trop large (oublie de retirer des bluffs)
+        return gtoRange.concat(['A2s', 'K3s', '76o', '98o'].slice(0, 2));
+      } else {
+        // Trop serré (oublie des value)
+        return gtoRange.slice(0, Math.floor(gtoRange.length * 0.85));
+      }
+    }
+
+    return gtoRange;
+  }
+
+  /**
+   * Clics hésitants (mouvement souris interrompu puis repris)
+   */
+  shouldHesitateClick(): { hesitate: boolean; pauseDuration?: number; movements?: number } {
+    if (!this.settings.stealthModeEnabled) return { hesitate: false };
+
+    let hesitateProb = 0.012; // 1.2% de base
+    
+    if (this.settings.enableDynamicProfile) {
+      const state = getPlayerProfile().getState();
+      // Plus d'hésitation si fatigué ou après loss
+      if (state.fatigueLevel > 0.6) hesitateProb += 0.015;
+      if (state.consecutiveLosses > 2) hesitateProb += 0.008;
+    }
+
+    if (Math.random() < hesitateProb) {
+      return {
+        hesitate: true,
+        pauseDuration: Math.round(randomInRange(150, 600)),
+        movements: Math.floor(randomInRange(2, 4)) // Nb de micro-mouvements
+      };
+    }
+
+    return { hesitate: false };
+  }
+
   generateThinkingPauses(totalThinkingTime: number): number[] {
     const pauses: number[] = [];
     const numPauses = Math.floor(randomInRange(0, 3));
