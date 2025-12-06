@@ -886,6 +886,15 @@ export class AdvancedGtoAdapter implements GtoAdapter {
   private currentTableId: string = "table_0";
   private currentVillainSeat: number = 0;
   public injectedNoise: number = 0; // Bruit injecté par anti-detection (0-1)
+  
+  // Probabilités d'erreurs cognitives humaines
+  private cognitiveErrorRates = {
+    potOddsMisread: 0.005,      // 0.5% mauvaise lecture pot odds
+    sizingError: 0.015,          // 1.5% underbet/overbet involontaire
+    missedCbet: 0.008,           // 0.8% oubli CBET
+    boardMisread: 0.005,         // 0.5% mauvaise lecture board
+    timingError: 0.01,           // 1% timing bizarre sur main facile
+  };
 
   constructor() {
     // Adapter le nombre de simulations selon le contexte
@@ -893,6 +902,82 @@ export class AdvancedGtoAdapter implements GtoAdapter {
     this.playerProfiler = new PlayerProfiler();
     this.rangeConstructor = new RangeConstructor();
     this.bluffingManager = new BluffingManager();
+  }
+
+  /**
+   * Applique des déviations GTO volontaires pour simuler imperfection humaine
+   */
+  private applyImperfectGTO(
+    recommendation: GtoRecommendation,
+    context: HandContext
+  ): GtoRecommendation {
+    const rand = Math.random();
+
+    // 1. Erreur d'évaluation pot odds (0.5%)
+    if (rand < this.cognitiveErrorRates.potOddsMisread) {
+      const wrongOdds = context.facingBet * (0.85 + Math.random() * 0.3); // ±15%
+      // Mauvaise décision basée sur pot odds faux
+      if (wrongOdds > context.potSize * 0.4) {
+        return this.degradeToFold(recommendation);
+      }
+    }
+
+    // 2. Underbet/Overbet involontaire (1.5%)
+    if (rand < this.cognitiveErrorRates.sizingError) {
+      recommendation.actions = recommendation.actions.map(action => {
+        if (action.action.includes('BET') || action.action.includes('RAISE')) {
+          const errorType = Math.random() < 0.5 ? 'under' : 'over';
+          const newSizing = errorType === 'under'
+            ? Math.floor(Math.random() * 30 + 10) // 10-40% pot (underbet)
+            : Math.floor(Math.random() * 80 + 100); // 100-180% pot (overbet)
+          
+          action.action = action.action.replace(/\d+%/, `${newSizing}%`);
+        }
+        return action;
+      });
+    }
+
+    // 3. Oubli de CBET (0.8%)
+    if (rand < this.cognitiveErrorRates.missedCbet && context.street === 'flop') {
+      const isHeadsUp = context.numPlayers === 2;
+      const wasPreRaiser = context.heroPosition.includes('BTN') || context.heroPosition.includes('CO');
+      
+      if (isHeadsUp && wasPreRaiser && context.facingBet === 0) {
+        // Devrait CBET mais check par erreur
+        return {
+          actions: [
+            { action: 'CHECK', probability: 0.7, ev: 0 },
+            { action: 'BET 66%', probability: 0.3, ev: 0.2 },
+          ],
+          bestAction: 'CHECK',
+          confidence: 0.6,
+        };
+      }
+    }
+
+    // 4. Mauvaise lecture du board (0.5%)
+    if (rand < this.cognitiveErrorRates.boardMisread) {
+      // Pense avoir mieux/pire que réalité
+      const degradationFactor = Math.random() < 0.5 ? 0.7 : 1.3;
+      recommendation.actions.forEach(action => {
+        action.ev *= degradationFactor;
+      });
+      recommendation.actions.sort((a, b) => b.ev - a.ev);
+      recommendation.bestAction = recommendation.actions[0]?.action || 'FOLD';
+    }
+
+    return recommendation;
+  }
+
+  private degradeToFold(recommendation: GtoRecommendation): GtoRecommendation {
+    return {
+      actions: [
+        { action: 'FOLD', probability: 0.8, ev: 0 },
+        { action: recommendation.bestAction, probability: 0.2, ev: -0.1 },
+      ],
+      bestAction: 'FOLD',
+      confidence: 0.5,
+    };
   }
 
   enableDebugMode(enabled: boolean = true): void {
@@ -968,6 +1053,9 @@ export class AdvancedGtoAdapter implements GtoAdapter {
     } else {
       result = await this.getPostflopRecommendation(context, villainProfile, exploit);
     }
+    
+    // Appliquer imperfections GTO volontaires
+    result = this.applyImperfectGTO(result, context);
     
     // Cache the result
     cache.set(context, result);

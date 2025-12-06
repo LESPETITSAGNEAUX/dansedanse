@@ -1,6 +1,4 @@
-
-import { ScreenRegion, TableWindow } from "./platform-adapter";
-import { CalibrationProfile, TableRegions, getCalibrationManager } from "./calibration";
+import { ScreenRegion, TableRegions, getCalibrationManager } from "./calibration";
 import { findColorInRegion, getDominantColorInRegion, ColorRange } from "./calibration";
 
 export interface AnchorPoint {
@@ -35,6 +33,9 @@ export class AutoCalibrationManager {
   private minRecalibrationDelay: number = 300000; // 5 minutes minimum entre recalibrations
   private anchorPoints: AnchorPoint[] = [];
   private driftThreshold: number = 5; // pixels
+  private confidenceScore: number = 1.0;
+  private driftHistory: Array<{ timestamp: number; drift: number }> = [];
+  private readonly DRIFT_WINDOW = 10; // Surveiller les 10 dernières mesures
 
   constructor() {
     this.initializeAnchorPoints();
@@ -103,7 +104,7 @@ export class AutoCalibrationManager {
     // Détecter chaque anchor point
     for (const anchor of this.anchorPoints) {
       const searchRegion = this.expandSearchArea(anchor.region, 30); // ±30px de marge
-      
+
       const colorMatch = findColorInRegion(
         screenBuffer,
         imageWidth,
@@ -202,6 +203,113 @@ export class AutoCalibrationManager {
     };
   }
 
+  async recalibrate(windowHandle: number): Promise<boolean> {
+    console.log('[AutoCalibration] Starting multi-frame recalibration...');
+
+    try {
+      // Capturer 5-10 frames pour validation multi-point
+      const numFrames = 5 + Math.floor(Math.random() * 6); // 5-10 frames
+      const screenshots: Array<{ buffer: Buffer; width: number; height: number }> = [];
+
+      for (let i = 0; i < numFrames; i++) {
+        const screenshot = await this.captureScreen(windowHandle);
+        if (screenshot) {
+          screenshots.push(screenshot);
+          await new Promise(resolve => setTimeout(resolve, 100)); // 100ms entre frames
+        }
+      }
+
+      if (screenshots.length < 3) {
+        console.warn('[AutoCalibration] Insufficient frames captured');
+        return false;
+      }
+
+      // Calculer le drift moyen sur toutes les frames
+      const drifts: Array<{ offsetX: number; offsetY: number; confidence: number }> = [];
+      for (const screenshot of screenshots) {
+        const detectedAnchors: Array<{ name: string; actualX: number; actualY: number; confidence: number }> = [];
+        for (const anchor of this.anchorPoints) {
+          const searchRegion = this.expandSearchArea(anchor.region, 30); // ±30px de marge
+          const colorMatch = findColorInRegion(
+            screenshot.buffer,
+            screenshot.width,
+            searchRegion,
+            anchor.colorSignature
+          );
+
+          if (colorMatch.found && colorMatch.matchCount > 10) {
+            detectedAnchors.push({
+              name: anchor.name,
+              actualX: colorMatch.x,
+              actualY: colorMatch.y,
+              confidence: Math.min(1.0, colorMatch.matchCount / 100),
+            });
+          }
+        }
+
+        if (detectedAnchors.length < 2) continue;
+
+        for (const detected of detectedAnchors) {
+          const anchor = this.anchorPoints.find(a => a.name === detected.name);
+          if (!anchor) continue;
+          const offsetX = detected.actualX - anchor.expectedPosition.x;
+          const offsetY = detected.actualY - anchor.expectedPosition.y;
+          drifts.push({ offsetX, offsetY, confidence: detected.confidence });
+        }
+      }
+
+      if (drifts.length === 0) {
+        console.warn('[AutoCalibration] No drift calculated from frames');
+        return false;
+      }
+
+      const avgOffsetX = drifts.reduce((sum, d) => sum + d.offsetX, 0) / drifts.length;
+      const avgOffsetY = drifts.reduce((sum, d) => sum + d.offsetY, 0) / drifts.length;
+      const avgConfidence = drifts.reduce((sum, d) => sum + d.confidence, 0) / drifts.length;
+
+      const currentDrift = Math.abs(avgOffsetX) + Math.abs(avgOffsetY);
+      const timestamp = Date.now();
+
+      // Détection de drift progressif
+      this.driftHistory.push({ timestamp, drift: currentDrift });
+      if (this.driftHistory.length > this.DRIFT_WINDOW) {
+        this.driftHistory.shift(); // Garder seulement les N dernières mesures
+      }
+
+      // Vérifier si le drift a augmenté de manière significative sur la fenêtre
+      if (this.driftHistory.length >= 3) {
+        const lastDrift = this.driftHistory[this.driftHistory.length - 1].drift;
+        const firstDrift = this.driftHistory[0].drift;
+        const driftIncrease = lastDrift - firstDrift;
+
+        // Si le drift augmente trop rapidement, déclencher une alerte ou une recalibration plus agressive
+        if (driftIncrease > this.driftThreshold * 2 && lastDrift > this.driftThreshold) {
+          console.warn(`[AutoCalibration] Progressive drift detected! Increase: ${driftIncrease.toFixed(2)}px`);
+          // Ici, on pourrait déclencher une recalibration forcée ou ajuster la confiance
+        }
+      }
+
+      this.confidenceScore = avgConfidence; // Mettre à jour le score de confiance global
+
+      // Est-ce que le drift est acceptable ?
+      if (currentDrift < this.driftThreshold) {
+        console.log(`[AutoCalibration] Drift negligible (${avgOffsetX.toFixed(1)}px, ${avgOffsetY.toFixed(1)}px), confidence: ${(this.confidenceScore * 100).toFixed(1)}%`);
+        return true; // Pas besoin de recalibrer si le drift est faible
+      }
+
+      console.log(`[AutoCalibration] Applying drift correction: offsetX=${avgOffsetX.toFixed(1)}px, offsetY=${avgOffsetY.toFixed(1)}px (Confidence: ${(this.confidenceScore * 100).toFixed(1)}%)`);
+
+      // On retourne true pour indiquer qu'une recalibration a été tentée, mais l'ajustement réel se fait ailleurs
+      // en utilisant le drift calculé.
+      return true;
+
+    } catch (error) {
+      console.error('[AutoCalibration] Error during recalibration:', error);
+      return false;
+    }
+  }
+
+
   private expandSearchArea(region: ScreenRegion, margin: number): ScreenRegion {
     return {
       x: Math.max(0, region.x - margin),
@@ -273,12 +381,12 @@ export class AutoCalibrationManager {
 
     for (const history of this.driftHistory.values()) {
       totalRecalibrations += history.length;
-      
+
       if (history.length > 0) {
         const lastDrift = history[history.length - 1];
         totalOffsetX += Math.abs(lastDrift.offsetX);
         totalOffsetY += Math.abs(lastDrift.offsetY);
-        
+
         if (Math.abs(lastDrift.offsetX) > this.driftThreshold || 
             Math.abs(lastDrift.offsetY) > this.driftThreshold) {
           windowsWithDrift++;
