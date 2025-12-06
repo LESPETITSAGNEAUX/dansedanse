@@ -441,7 +441,49 @@ Surveiller dans le dashboard :
 
 ---
 
-## ⚙️ Étape 8 : Configuration Multi-Tables
+## 🧪 Étape 8 : Tests et Validation
+
+### 8.1 Tests de captures GGClub
+
+Pour tester la détection OCR et la performance :
+
+```bash
+# Via API (serveur démarré)
+curl -X POST http://localhost:5000/api/tests/capture-benchmark \
+  -H "Content-Type: application/json" \
+  -d '{"windowHandle": 1001, "iterations": 50}'
+```
+
+Les résultats seront dans `./test-results/captures/`
+
+### 8.2 Test multi-tables (6 tables)
+
+```bash
+curl -X POST http://localhost:5000/api/tests/multi-table
+```
+
+Vérifie que le bot peut gérer 6 tables sans latence excessive.
+
+### 8.3 Test end-to-end
+
+```bash
+curl -X POST http://localhost:5000/api/tests/e2e
+```
+
+Teste le cycle complet : connexion → détection → décision → action.
+
+### 8.4 Replay des sessions
+
+Les sessions de jeu sont enregistrées dans `./replays/`. Pour analyser une session :
+
+1. Aller dans le dashboard
+2. Onglet "Debug"
+3. Charger une session enregistrée
+4. Revoir frame par frame les décisions
+
+---
+
+## ⚙️ Étape 9 : Configuration Multi-Tables
 
 ### 8.1 Activer le multi-tabling
 

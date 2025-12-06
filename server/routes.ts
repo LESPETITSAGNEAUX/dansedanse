@@ -11,6 +11,10 @@ import { getPlatformManager, getSupportedPlatforms, PlatformManagerConfig } from
 import { getTaskScheduler } from "./bot/task-scheduler";
 import { insertHumanizerConfigSchema, insertGtoConfigSchema, insertPlatformConfigSchema } from "@shared/schema";
 import { z } from "zod";
+import { GGClubCaptureTest } from "./bot/tests/ggclub-capture-test";
+import { MultiTablePerformanceTest } from "./bot/tests/multi-table-performance";
+import { E2ETest } from "./bot/tests/e2e-test";
+
 
 const platformConnectSchema = z.object({
   platformName: z.string().min(1, "Platform name is required"),
@@ -1172,6 +1176,40 @@ export async function registerRoutes(
       res.status(500).json({ error: error.message });
     }
   });
+
+  // ===== TEST ENDPOINTS =====
+  app.post("/api/tests/capture-benchmark", async (req, res) => {
+    try {
+      const { windowHandle, iterations } = req.body;
+      const test = new GGClubCaptureTest();
+      await test.initialize();
+      await test.runBenchmark(windowHandle || 1001, iterations || 50);
+      res.json({ success: true, message: "Benchmark complete" });
+    } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  app.post("/api/tests/multi-table", async (_req, res) => {
+    try {
+      const test = new MultiTablePerformanceTest();
+      await test.testSixTables();
+      res.json({ success: true, message: "Multi-table test complete" });
+    } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  app.post("/api/tests/e2e", async (_req, res) => {
+    try {
+      const test = new E2ETest();
+      await test.runFullCycle();
+      res.json({ success: true, message: "E2E test complete" });
+    } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
 
   return httpServer;
 }
