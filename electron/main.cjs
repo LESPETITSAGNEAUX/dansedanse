@@ -1,10 +1,9 @@
 const { app, BrowserWindow, ipcMain, Tray, Menu, shell } = require('electron');
 const path = require('path');
-const { spawn } = require('child_process');
 
 let mainWindow;
 let tray;
-let serverProcess;
+let serverStarted = false;
 
 const isDev = process.env.NODE_ENV === 'development';
 const PORT = process.env.PORT || 5000;
@@ -52,7 +51,7 @@ function createWindow() {
 function createTray() {
   const iconPath = path.join(__dirname, 'assets', 'tray-icon.png');
   tray = new Tray(iconPath);
-  
+
   const contextMenu = Menu.buildFromTemplate([
     { 
       label: 'Ouvrir Dashboard', 
@@ -72,17 +71,9 @@ function createTray() {
     },
     { type: 'separator' },
     { 
-      label: 'Redémarrer le serveur', 
-      click: () => {
-        restartServer();
-      }
-    },
-    { type: 'separator' },
-    { 
       label: 'Quitter', 
       click: () => {
         app.isQuitting = true;
-        stopServer();
         app.quit();
       }
     }
@@ -100,67 +91,44 @@ function createTray() {
 }
 
 function startServer() {
-  const serverPath = path.join(__dirname, '..', 'dist', 'index.cjs');
-  
-  const env = {
-    ...process.env,
-    NODE_ENV: 'production',
-    PORT: PORT.toString()
-  };
+  if (serverStarted) {
+    console.log('[Server] Already started');
+    return;
+  }
 
-  // Utiliser le Node.js embarqué d'Electron (TOUJOURS disponible)
-  // Évite tous les problèmes de chemins Windows, permissions, etc.
-  const nodePath = process.execPath;
-  
-  console.log('[Server] Starting with node path:', nodePath);
-  console.log('[Server] Server path:', serverPath);
+  const serverPath = path.join(__dirname, '..', 'dist', 'index.cjs');
+
+  process.env.NODE_ENV = 'production';
+  process.env.PORT = PORT.toString();
+
+  console.log('[Server] Loading server from:', serverPath);
   console.log('[Server] Working directory:', path.join(__dirname, '..'));
 
-  serverProcess = spawn(nodePath, [serverPath], {
-    cwd: path.join(__dirname, '..'),
-    env,
-    stdio: ['pipe', 'pipe', 'pipe']
-    // Ne pas utiliser shell pour éviter ENOENT avec cmd.exe
-  });
+  try {
+    // Changer le working directory pour le serveur
+    process.chdir(path.join(__dirname, '..'));
 
-  serverProcess.stdout.on('data', (data) => {
-    console.log(`[Server] ${data}`);
-    if (mainWindow) {
-      mainWindow.webContents.send('server-log', data.toString());
-    }
-  });
+    // Charger le serveur directement (pas de spawn)
+    require(serverPath);
 
-  serverProcess.stderr.on('data', (data) => {
-    console.error(`[Server Error] ${data}`);
-    if (mainWindow) {
-      mainWindow.webContents.send('server-error', data.toString());
-    }
-  });
+    serverStarted = true;
+    console.log('[Server] Started successfully');
+  } catch (error) {
+    console.error('[Server] Failed to start:', error);
 
-  serverProcess.on('close', (code) => {
-    console.log(`[Server] Process exited with code ${code}`);
+    // Retry après 3 secondes
     if (!app.isQuitting) {
-      console.log('[Server] Restarting in 3 seconds...');
-      setTimeout(startServer, 3000);
+      setTimeout(() => {
+        serverStarted = false;
+        startServer();
+      }, 3000);
     }
-  });
-}
-
-function stopServer() {
-  if (serverProcess) {
-    serverProcess.kill('SIGTERM');
-    serverProcess = null;
   }
-}
-
-function restartServer() {
-  stopServer();
-  setTimeout(startServer, 1000);
 }
 
 app.whenReady().then(() => {
   startServer();
-  
+
   setTimeout(() => {
     createWindow();
     createTray();
@@ -169,6 +137,7 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
+    // Ne pas quitter l'app sur Windows
   }
 });
 
@@ -180,17 +149,16 @@ app.on('activate', () => {
 
 app.on('before-quit', () => {
   app.isQuitting = true;
-  stopServer();
 });
 
 ipcMain.handle('get-server-status', () => {
   return {
-    running: serverProcess !== null,
+    running: serverStarted,
     port: PORT
   };
 });
 
 ipcMain.handle('restart-server', () => {
-  restartServer();
-  return { success: true };
+  // Le serveur tourne dans le même processus, pas besoin de restart
+  return { success: true, message: 'Server runs in-process' };
 });
