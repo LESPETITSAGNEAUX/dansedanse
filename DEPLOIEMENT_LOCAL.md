@@ -571,29 +571,81 @@ Dans Settings > Player Profile :
 
 ## 🧠 Étape 10 : Vision Améliorée (Deep Learning)
 
-### 10.1 Card Classifier (TensorFlow.js)
+### 10.1 Poker OCR Engine (Pure JavaScript ML)
 
-Le système intègre maintenant un **classificateur de cartes par deep learning** en complément de l'OCR :
+Le système intègre maintenant un **moteur OCR dédié au poker** basé sur des réseaux de neurones convolutifs (CNN) :
+
+**Architecture** :
+- **Neural Network** : Implémentation pure JavaScript (pas de dépendances externes TensorFlow/PyTorch)
+- **Card Classifier** : CNN pour reconnaissance de rangs et couleurs de cartes
+- **Training Pipeline** : Système d'entraînement avec augmentation de données
+- **Data Collector** : Collecte automatique d'exemples pour amélioration continue
 
 **Fonctionnalités** :
-- Reconnaissance de cartes par réseau de neurones convolutif (CNN)
-- Fallback automatique si OCR échoue
-- Précision : ~95% après entraînement
+- Reconnaissance de cartes (rangs : 2-A, couleurs : ♠♥♦♣)
+- Reconnaissance de chiffres (0-9, ., ,, K, M, B, $, €)
+- Fallback automatique vers Tesseract si confiance ML < 75%
+- Double validation pour fiabilité 99%+
 - Détection rapide : 50-100ms par carte
 
-**Utilisation** :
+**Utilisation automatique** :
 ```typescript
-// Automatique dans GGClubAdapter
-// Si OCR échoue → utilise le classifier ML
-// Double validation pour fiabilité 99%+
+// Dans GGClubAdapter
+// 1. ML OCR (prioritaire si disponible)
+// 2. Tesseract OCR (fallback)
+// 3. Template matching (dernier recours)
 ```
 
-**Entraînement personnalisé** :
-```bash
-# Capturer des exemples de cartes
-curl -X POST http://localhost:5000/api/vision/train-classifier
+### 10.2 Entraînement du Modèle
 
-# Le modèle s'améliore automatiquement avec l'usage
+**Collecte automatique de données** :
+Le système collecte automatiquement des exemples pendant le jeu quand la confiance est élevée (>95%).
+
+**Entraînement manuel** :
+```bash
+# Lancer le pipeline d'entraînement
+npm run train:ml-ocr
+
+# Les poids sont sauvegardés dans server/bot/ml-ocr/weights/
+# - rank-weights.json (reconnaissance rangs)
+# - suit-weights.json (reconnaissance couleurs)
+# - digit-weights.json (reconnaissance chiffres/montants)
+```
+
+**Génération de données synthétiques** :
+```typescript
+// Si pas assez d'exemples, génération automatique
+await dataCollector.generateSyntheticData('rank', 500);
+await dataCollector.generateSyntheticData('suit', 500);
+await dataCollector.generateSyntheticData('digit', 500);
+```
+
+### 10.3 Configuration ML OCR
+
+Dans le fichier `server/bot/ml-ocr/poker-ocr-engine.ts` :
+
+```typescript
+const config = {
+  useMLPrimary: true,              // Utiliser ML en priorité
+  useTesseractFallback: true,       // Fallback Tesseract
+  confidenceThreshold: 0.75,        // Seuil de confiance minimum
+  collectTrainingData: true,        // Collecter des exemples
+  maxRetries: 2                     // Nombre de tentatives
+};
+```
+
+**Statistiques disponibles** :
+```bash
+# Voir les stats ML OCR
+curl http://localhost:5000/api/ml-ocr/stats
+
+# Résultat
+{
+  "mlCalls": 1234,
+  "tesseractCalls": 56,
+  "avgMlLatency": 85,
+  "avgTesseractLatency": 320
+}
 ```
 
 ### 10.2 Multi-Frame Validator
@@ -1286,7 +1338,9 @@ Avant de lancer le bot, vérifier :
 - [ ] Clés de chiffrement configurées (ENCRYPTION_KEY, DB_ENCRYPTION_KEY)
 - [ ] WebSocket auth token configuré (WS_AUTH_TOKEN)
 - [ ] Vision Error Logger opérationnel
-- [ ] Card Classifier ML initialisé
+- [ ] Poker OCR Engine initialisé (ML + Tesseract)
+- [ ] Card Classifier ML prêt
+- [ ] Data Collector actif
 - [ ] Range Updater configuré
 - [ ] Dashboard accessible sur http://localhost:5000
 

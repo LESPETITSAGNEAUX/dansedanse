@@ -13,9 +13,15 @@ Bot de poker multi-comptes avec intelligence artificielle GTO, vision par ordina
 - **Opponent Profiling** : Adaptation automatique aux adversaires
 
 ### 👁️ Vision & Détection
-- **ML Card Classifier** : TensorFlow.js CNN pour reconnaissance de cartes (95% précision)
+- **Poker OCR Engine** : CNN pure JavaScript pour reconnaissance optimisée (95% précision)
+  - Neural Network custom (Conv, MaxPool, Dense layers)
+  - Card Classifier (rangs + couleurs)
+  - Digit Classifier (montants pot/stack/bet)
+  - Training Pipeline avec augmentation de données
+  - Data Collector avec collecte automatique
 - **Multi-Frame Validation** : 2-3 frames consensus pour 99% fiabilité
-- **Pot Detector** : Détection par histogramme couleur
+- **Fallback hiérarchisé** : ML OCR → Tesseract → Template Matching
+- **Pot Detector** : Détection par histogramme couleur + validation heuristique
 - **OCR Error Correction** : Système de correction automatique
 - **Vision Error Logger** : Tracking détaillé des erreurs avec screenshots
 
@@ -137,6 +143,9 @@ curl http://localhost:5000/api/stats
 
 # Vision errors
 curl http://localhost:5000/api/vision/metrics
+
+# ML OCR stats
+curl http://localhost:5000/api/ml-ocr/stats
 
 # GTO Cache
 curl http://localhost:5000/api/gto-config
