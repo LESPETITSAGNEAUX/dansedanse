@@ -31,7 +31,6 @@ win:
     - target: portable
       arch: x64
   icon: electron/assets/icon.ico
-  publisherName: GTO Poker Bot
   requestedExecutionLevel: asInvoker
 
 nsis:
