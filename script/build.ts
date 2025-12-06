@@ -45,6 +45,19 @@ async function buildAll() {
     ...Object.keys(pkg.devDependencies || {}),
   ];
   const externals = allDeps.filter((dep) => !allowlist.includes(dep));
+  
+  // Always exclude native/optional modules
+  const nativeModules = [
+    'onnxruntime-node',
+    'robotjs',
+    'screenshot-desktop',
+    'node-window-manager',
+    'sharp',
+    'canvas',
+    'bufferutil',
+    'utf-8-validate',
+  ];
+  externals.push(...nativeModules);
 
   await esbuild({
     entryPoints: ["server/index.ts"],
