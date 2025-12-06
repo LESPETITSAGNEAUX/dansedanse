@@ -11,7 +11,12 @@
     "check": "tsc",
     "check:platform": "tsx script/check-platform.ts",
     "db:push": "drizzle-kit push",
-    "build:workers": "tsx script/build-workers.ts"
+    "build:workers": "tsx script/build-workers.ts",
+    "migrate:db": "tsx script/migrate-db.ts",
+    "inspect:db": "tsx script/inspect-db.ts",
+    "check:modules": "tsx script/check-platform.ts",
+    "train:ml": "tsx script/train-ml-models.ts",
+    "validate:dataset": "tsx script/validate-dataset.ts"
   },
   "dependencies": {
     "@auth/core": "^0.37.4",
