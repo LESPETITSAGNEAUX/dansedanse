@@ -363,7 +363,6 @@ export class TableSession extends EventEmitter {
     );
 
     await storage.createHandHistory({
-      tableId: this.tableState.id,
       handNumber: `${Date.now()}`,
       heroCards: this.tableState.heroCards,
       communityCards: this.tableState.communityCards,

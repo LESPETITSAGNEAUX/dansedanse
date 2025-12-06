@@ -13,9 +13,9 @@ export async function registerEventHandlers(bus: EventBus): Promise<void> {
     const tableManager = getTableManager();
     
     // Mettre à jour l'état de la table
-    const table = tableManager.getTableByWindowHandle(windowHandle);
+    const table = tableManager.getTable(String(windowHandle));
     if (table) {
-      table.updateFromDetectedState(state);
+      table.updateState(state);
     }
     
     // Publier un événement UI update
@@ -90,7 +90,10 @@ export async function registerEventHandlers(bus: EventBus): Promise<void> {
         action: humanizedAction.action,
         amount: humanizedAction.amount,
         delay: humanizedAction.delay,
-      }, event.metadatata);
+      }, event.metadata);
+    } catch (error) {
+      console.error("[EventHandler] Humanization failed:", error);
+    }
   });
 
   // Action Events
@@ -102,7 +105,7 @@ export async function registerEventHandlers(bus: EventBus): Promise<void> {
     await new Promise(resolve => setTimeout(resolve, delay));
     
     // Exécuter l'action via le platform manager
-    const table = platformManager.getTableByTableId(tableId);
+    const table = platformManager.getTableByWindowHandle(tableId);
     if (table) {
       try {
         await platformManager.manualAction(table.windowHandle, action, amount);

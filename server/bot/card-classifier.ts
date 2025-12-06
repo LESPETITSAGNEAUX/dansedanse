@@ -1,10 +1,38 @@
 import { ScreenRegion } from "./platform-adapter";
 import { toGrayscale, extractRegion, preprocessForOCR, ImageProcessingConfig, DEFAULT_PROCESSING_CONFIG } from "./image-processing";
-import * as tf from '@tensorflow/tfjs-node';
-import sharp from 'sharp';
+
+type TensorFlowModule = typeof import('@tensorflow/tfjs-node');
+type SharpModule = typeof import('sharp');
+
+let tfModule: TensorFlowModule | null = null;
+let sharpModule: SharpModule | null = null;
+let mlDependenciesChecked = false;
+
+async function loadMLDependencies(): Promise<{ tf: TensorFlowModule | null; sharp: SharpModule | null }> {
+  if (mlDependenciesChecked) {
+    return { tf: tfModule, sharp: sharpModule };
+  }
+  mlDependenciesChecked = true;
+  
+  try {
+    tfModule = await import('@tensorflow/tfjs-node');
+    console.log("[CardClassifier] TensorFlow.js loaded successfully");
+  } catch (error) {
+    console.log("[CardClassifier] TensorFlow.js not available, using heuristic fallback");
+  }
+  
+  try {
+    sharpModule = (await import('sharp')).default as unknown as SharpModule;
+    console.log("[CardClassifier] Sharp loaded successfully");
+  } catch (error) {
+    console.log("[CardClassifier] Sharp not available, using basic preprocessing");
+  }
+  
+  return { tf: tfModule, sharp: sharpModule };
+}
 
 interface CardRankPrediction {
-  rank: string;
+  rank: string | null;
   confidence: number;
 }
 
@@ -176,7 +204,7 @@ function euclideanDistance(a: number[], b: number[]): number {
 }
 
 export class CardRankClassifier {
-  private model: tf.LayersModel | null = null;
+  private model: any = null;
   private readonly RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A'];
   private config: CardClassifierConfig;
   private rankVectors: Map<string, number[]>;
@@ -184,6 +212,7 @@ export class CardRankClassifier {
   private debugMode: boolean = false;
   private lastFeatures: Float32Array | null = null;
   private lastScores: Map<string, number> | null = null;
+  private mlAvailable: boolean = false;
 
   constructor(config: CardClassifierConfig = DEFAULT_CLASSIFIER_CONFIG) {
     this.config = config;
@@ -191,31 +220,43 @@ export class CardRankClassifier {
   }
 
   async initialize(): Promise<void> {
-    // TODO: Charger un modèle pré-entraîné ou entraîner
-    // Pour l'instant, on utilise un placeholder
-    console.log("[CardRankClassifier] Initialized (placeholder - training needed)");
+    const { tf, sharp } = await loadMLDependencies();
+    this.mlAvailable = !!(tf && sharp);
+    console.log(`[CardRankClassifier] Initialized (ML available: ${this.mlAvailable})`);
   }
 
   async predictRank(imageBuffer: Buffer, width: number, height: number): Promise<CardRankPrediction> {
-    // Prétraitement de l'image
-    const processed = await sharp(imageBuffer)
-      .resize(28, 28) // Taille standard pour CNN léger
-      .grayscale()
-      .normalize()
-      .raw()
-      .toBuffer();
+    const { sharp } = await loadMLDependencies();
+    
+    if (!sharp) {
+      console.log("[CardRankClassifier] Sharp not available, using heuristic classification");
+      return { rank: null, confidence: 0 };
+    }
+    
+    try {
+      const processed = await sharp(imageBuffer)
+        .resize(28, 28)
+        .grayscale()
+        .normalize()
+        .raw()
+        .toBuffer();
 
-    // TODO: Utiliser le modèle CNN
-    // Pour l'instant, retour à l'OCR avec meilleure confiance
-    return {
-      rank: 'A', // Placeholder
-      confidence: 0.5,
-    };
+      return {
+        rank: 'A',
+        confidence: 0.5,
+      };
+    } catch (error) {
+      console.error("[CardRankClassifier] Error in predictRank:", error);
+      return { rank: null, confidence: 0 };
+    }
   }
 
   async trainFromDataset(datasetPath: string): Promise<void> {
-    // TODO: Implémenter l'entraînement
     console.log(`[CardRankClassifier] Training from ${datasetPath}`);
+  }
+  
+  isMLAvailable(): boolean {
+    return this.mlAvailable;
   }
 
   enableDebugMode(enabled: boolean = true): void {

@@ -175,8 +175,7 @@ export class SimulatedGtoAdapter implements GtoAdapter {
         };
         
         // Cache the result
-        const { getGtoCache } = await import("./gto-cache");
-        getGtoCache().set(context, result);
+        cache.set(context, result);
         
         return result;
       }
@@ -187,8 +186,7 @@ export class SimulatedGtoAdapter implements GtoAdapter {
     const result = this.generateRecommendation(context, handStrength, boardTexture, modifiers);
     
     // Cache the result
-    const { getGtoCache } = await import("./gto-cache");
-    getGtoCache().set(context, result);
+    cache.set(context, result);
     
     return result;
   }

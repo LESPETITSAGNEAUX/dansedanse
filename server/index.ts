@@ -123,7 +123,7 @@ app.use((req, res, next) => {
     serveStatic(app);
   }
 
-  const PORT = process.env.PORT || 5000;
+  const PORT = parseInt(process.env.PORT || "5000", 10);
   httpServer.listen(PORT, "0.0.0.0", () => {
     log(`Server running on port ${PORT}`);
   });
