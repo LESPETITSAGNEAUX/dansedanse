@@ -108,6 +108,52 @@ Le bot utilise une architecture modulaire avec séparation des responsabilités 
 - **Vision Metrics** : Monitoring temps réel OCR/ML performance
 - **Debug Dashboard** : Interface complète pour diagnostics
 
+## 🎯 Fonctionnalités
+
+### ✅ Actuellement Implémenté
+
+- **Vision par ordinateur** : 
+  - OCR Tesseract + régions calibrées
+  - Template Matching (OpenCV) pour boutons et suits
+  - CNN pour reconnaissance de cartes (64×64)
+  - DXGI Desktop Duplication (6× plus rapide)
+  - Diff-Based OCR (optimisation frame-to-frame)
+  - Debug Visualizer avec annotations
+
+- **GTO Engine** : 
+  - Solver externe avec cache Redis
+  - Monte Carlo equity estimation (500 simulations)
+  - Range splitting multi-street
+  - Opponent modeling (VPIP, PFR, AF)
+  - Mixed strategies randomisées
+
+- **Anti-détection** : 
+  - Timing humain, mouvements de souris, erreurs cognitives
+  - Faux mouvements humains
+  - Variation du style selon l'heure
+  - Simulation d'hésitation
+  - Erreurs cognitives aléatoires
+
+- **Multi-tables** : 
+  - Gestion jusqu'à 24 tables simultanées
+  - Worker pool pour vision parallèle
+  - Auto-calibration par plateforme
+
+- **Platform Support** : GGClub (extensible à d'autres plateformes)
+
+- **ML/OCR** :
+  - Data Collector pour entraînement
+  - Neural Network pour cartes
+  - Training Pipeline automatisé
+  - Support ONNX Runtime
+
+- **Tests** :
+  - Suite complète de tests (6 phases)
+  - Tests multi-résolution (1080p, 1440p, 4K)
+  - Tests multi-DPI (100%-200%)
+  - Tests de robustesse
+  - Collection de dataset automatisée
+
 ## 📋 Prérequis
 
 - **Node.js** 20.x+
@@ -139,15 +185,66 @@ psql -U poker_bot -d poker_bot -f script/migrate-player-profile.sql
 npm run dev
 ```
 
+### 📊 Scripts Disponibles
+
+**Collecte de Dataset** :
+```bash
+# Windows
+script/collect-dataset.bat
+
+# Linux/Mac
+node --loader tsx script/collect-dataset.ts 300
+```
+
+**Tests Complets** :
+```bash
+# Windows
+script/run-comprehensive-tests.bat
+
+# API
+curl -X POST http://localhost:5000/api/tests/comprehensive
+```
+
+**Inspection DB** :
+```bash
+script/inspect-db.bat
+```
+
 Voir [DEPLOIEMENT_LOCAL.md](rag://rag_source_3) pour guide complet.
 
 ## 📚 Documentation
 
-- **[DEPLOIEMENT_LOCAL.md](rag://rag_source_3)** : Guide d'installation détaillé
-- **[SECURITY.md](rag://rag_source_0)** : Configuration sécurité & chiffrement
-- **[PASSWORD_STORAGE.md](rag://rag_source_4)** : Stockage sécurisé mots de passe
-- **[MULTI_ACCOUNTS.md](rag://rag_source_5)** : Gestion multi-comptes
-- **[replit.md](rag://rag_source_6)** : Architecture système complète
+- [DEPLOIEMENT_LOCAL.md](./DEPLOIEMENT_LOCAL.md) - Guide de déploiement local
+- [SECURITY.md](./SECURITY.md) - Sécurité et chiffrement
+- [PASSWORD_STORAGE.md](./PASSWORD_STORAGE.md) - Stockage sécurisé des mots de passe
+- [MULTI_ACCOUNTS.md](./MULTI_ACCOUNTS.md) - Gestion multi-comptes
+- [README_TESTS.md](./README_TESTS.md) - Guide de tests et collecte de dataset
+- [DXGI_SETUP.md](./DXGI_SETUP.md) - Configuration DXGI Desktop Duplication
+
+## 🏗️ Architecture Avancée
+
+### Vision Pipeline
+```
+DXGI Capture → Diff Detector → Template Matching → OCR Pool → CNN Classifier
+     ↓              ↓                  ↓                ↓            ↓
+  6× faster    -70% CPU        Buttons/Suits      Multi-thread   98% accuracy
+```
+
+### GTO Engine
+```
+Game State → Range Splitter → Monte Carlo (500 sims) → Opponent Model → Mixed Strategy
+                                     ↓
+                            30-50ms per decision
+```
+
+### Worker Architecture
+```
+Main Thread
+    ├── Vision Worker Pool (4 workers)
+    ├── GTO Worker Thread
+    ├── Humanizer Worker Thread
+    └── Event Bus (Redis Streams)
+```
 
 ## 🎮 Utilisation
 
@@ -191,6 +288,45 @@ curl -X POST http://localhost:5000/api/tests/e2e
 
 # Stress test (6, 12, 24 tables)
 curl -X POST http://localhost:5000/api/tests/stress
+```
+
+### WebSocket Events
+
+- `table_event` : Événements de table
+- `platform_status_change` : Changement de statut
+- `auto_play_changed` : Auto-play activé/désactivé
+- `device_connected` : Nouveau device connecté
+
+### API Endpoints - Tests & Dataset
+
+**Collecte de Dataset** :
+```bash
+POST /api/dataset/collect
+GET  /api/dataset/stats
+```
+
+**Tests Complets** :
+```bash
+POST /api/tests/comprehensive
+POST /api/tests/capture-benchmark
+POST /api/tests/multi-table
+POST /api/tests/stress
+POST /api/tests/e2e
+```
+
+**Vision Debugging** :
+```bash
+GET  /api/vision/errors
+GET  /api/vision/errors/critical
+GET  /api/vision/metrics
+GET  /api/vision/report
+POST /api/vision/export
+POST /api/vision/clear
+```
+
+**Worker Stats** :
+```bash
+GET /api/workers/stats
 ```
 
 ## 📊 Monitoring

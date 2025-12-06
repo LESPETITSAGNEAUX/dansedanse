@@ -1358,7 +1358,6 @@ export async function registerRoutes(
       console.error("[API] Dataset stats error:", error);
       res.status(500).json({ error: String(error) });
     }
-    }
   });
 
 

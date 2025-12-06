@@ -349,7 +349,6 @@ Vérifier dans la console :
 Si des modules ne chargent pas :
 - Vérifier les logs d'erreur
 - Réinstaller le module problématique
-- Vérifier les build tools
 
 ### 5.3 Accès au Dashboard
 
@@ -1024,7 +1023,7 @@ Le système OCR utilise maintenant une **approche multi-couches** pour une fiabi
 // Dans GGClubAdapter
 const ocrEngine = await getPokerOCREngine({
   useMLPrimary: true,              // ML en priorité
-  useTesseractFallback: true,      // Tesseract si ML échoue
+  useTesseractFallback: true,       // Tesseract si ML échoue
   confidenceThreshold: 0.75,       // Seuil minimum 75%
   collectTrainingData: true,       // Collecter pour amélioration
   maxRetries: 2                    // 2 tentatives max
@@ -1123,12 +1122,12 @@ Le système intègre maintenant la **détection HSV** comme méthode primaire po
 1. HSV Color Detection (prioritaire)
    ↓ (si confiance >= 0.7)
    ✓ Résultat validé
-   
+
    ↓ (si confiance < 0.7)
 2. ML Neural Network (fallback)
    ↓ (si cohérent avec HSV)
    ✓ Confiance boostée de 20%
-   
+
    ↓ (si incohérent)
    ✓ Utilise la méthode avec meilleure confiance
 ```
@@ -1200,7 +1199,7 @@ if (this.progressiveDriftHistory.length >= 3) {
   const lastDrift = this.progressiveDriftHistory[this.progressiveDriftHistory.length - 1].drift;
   const firstDrift = this.progressiveDriftHistory[0].drift;
   const driftIncrease = lastDrift - firstDrift;
-  
+
   // Alerte si augmentation > 10px
   if (driftIncrease > this.driftThreshold * 2 && lastDrift > this.driftThreshold) {
     console.warn(`[AutoCalibration] Dérive progressive détectée! Augmentation: ${driftIncrease.toFixed(2)}px`);
