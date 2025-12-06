@@ -1,4 +1,3 @@
-
 # 🚀 Guide de Déploiement Local - GTO Poker Bot
 
 Ce guide vous permettra d'installer et de faire fonctionner le bot de poker sur votre machine locale Windows/Linux avec interface graphique.

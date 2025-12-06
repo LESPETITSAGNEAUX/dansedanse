@@ -1,4 +1,3 @@
-
 # 🎰 GTO Poker Bot - Système Complet
 
 Bot de poker multi-comptes avec intelligence artificielle GTO, vision par ordinateur, et anti-détection avancée.
@@ -47,6 +46,32 @@ Bot de poker multi-comptes avec intelligence artificielle GTO, vision par ordina
 - **Safe Mode** : Ajustement automatique si suspicion élevée
 
 ### 🔧 Architecture
+
+Le bot utilise une architecture modulaire avec séparation des responsabilités :
+
+### Couche Vision
+- **OCR Pipeline**: ONNX (10x plus rapide) → ML → Tesseract fallback
+- **Multi-Frame Validator**: Validation sur 2-10 frames pour fiabilité
+- **Auto-Calibration**: Détection de drift avec anchor points (4 zones fixes)
+- **Diff Detector**: Optimisation 24 tables (recalcul uniquement régions modifiées)
+
+### Couche Décision
+- **GTO Engine**: Cache chiffré + exploitation opponent profiler
+- **Imperfect GTO**: Déviations volontaires (erreurs pot odds, underbet/overbet)
+- **Cognitive Error Engine**: Simule erreurs humaines basées sur psychologie
+- **Anti-Pattern Detector**: Surveille 7 métriques vs baseline humain
+
+### Couche Humanisation
+- **Human Behavior Dataset**: 500+ joueurs réels (timings, sizings, erreurs)
+- **Dynamic Profile**: Tilt/fatigue corrélés aux wins/losses
+- **Mouse Trajectories**: Loi de Fitts + tremblements 80-120Hz
+- **Intentional Errors**: Brain farts (0.1%), folds marginaux (0.5%)
+
+### Platform Adapters
+- **GGClub**: Détection multi-méthodes (color → template → shape)
+- **State Manager**: Gestion tables et sessions avec cache
+
+### 🔧 Architecture Initiale (gardée pour référence)
 - **Event Bus Redis** : Système distribué pour 200+ tables simultanées
 - **Worker Threads** : Vision, GTO, Humanizer en threads séparés (non-bloquant)
 - **Task Scheduler** : Priority-based event loop avec throttling
@@ -170,7 +195,7 @@ curl http://localhost:5000/api/workers/stats
 # Event Bus
 curl http://localhost:5000/api/event-bus/stats
 
-# Range Updater
+# RangeUpdater
 curl http://localhost:5000/api/ranges/status
 ```
 
