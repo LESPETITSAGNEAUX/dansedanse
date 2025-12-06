@@ -10,12 +10,12 @@ export async function registerEventHandlers(bus: EventBus): Promise<void> {
   // Vision Events
   bus.on("vision.state_detected", async (event: BusEvent) => {
     const { windowHandle, state } = event.payload;
-    const tableManager = getTableManager();
+    const platformManager = getPlatformManager();
     
-    // Mettre à jour l'état de la table
-    const table = tableManager.getTable(String(windowHandle));
-    if (table) {
-      table.updateState(state);
+    // Mettre à jour l'état de la table via PlatformManager (keyed by windowHandle)
+    const managedTable = platformManager.getTableByWindowHandle(windowHandle);
+    if (managedTable?.tableSession) {
+      managedTable.tableSession.updateState(state);
     }
     
     // Publier un événement UI update
