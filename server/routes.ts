@@ -1470,6 +1470,42 @@ app.post("/api/vision/export", async (_req, res) => {
   res.type("application/json").send(log);
 });
 
+// Replay Viewer routes
+app.get("/api/replay/sessions", async (_req, res) => {
+  try {
+    const sessions = await storage.getAllBotSessions();
+    res.json({ sessions });
+  } catch (error) {
+    console.error("Error fetching replay sessions:", error);
+    res.status(500).json({ error: "Failed to fetch sessions" });
+  }
+});
+
+app.get("/api/replay/session/:sessionId", async (req, res) => {
+  try {
+    const { getDebugReplaySystem } = await import("./bot/debug-replay");
+    const replaySystem = getDebugReplaySystem();
+    const frames = await replaySystem.loadSession(req.params.sessionId);
+    res.json({ frames });
+  } catch (error) {
+    console.error("Error loading replay session:", error);
+    res.status(500).json({ error: "Failed to load session" });
+  }
+});
+
+app.get("/api/replay/analytics/:sessionId", async (req, res) => {
+  try {
+    const { getReplayViewer } = await import("./bot/replay-viewer");
+    const viewer = getReplayViewer();
+    await viewer.loadSession(req.params.sessionId);
+    const analytics = await viewer.analyzeSession();
+    res.json(analytics);
+  } catch (error) {
+    console.error("Error analyzing replay:", error);
+    res.status(500).json({ error: "Failed to analyze session" });
+  }
+});
+
 app.post("/api/vision/clear", async (_req, res) => {
   const { visionErrorLogger } = await import("./bot/vision-error-logger");
   visionErrorLogger.clearErrors();

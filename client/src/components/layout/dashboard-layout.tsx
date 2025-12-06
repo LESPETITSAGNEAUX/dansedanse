@@ -1,6 +1,6 @@
 import { ReactNode } from "react";
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Settings, Activity, Terminal, Shield, Cpu } from "lucide-react";
+import { LayoutDashboard, Settings, Activity, Terminal, Shield, Cpu, Bug } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface DashboardLayoutProps {
@@ -15,6 +15,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     { icon: Activity, label: "Tables en Direct", href: "/live" },
     { icon: Terminal, label: "Logs Système", href: "/logs" },
     { icon: Settings, label: "Configuration", href: "/settings" },
+    { icon: Bug, label: "Debug", href: "/debug" },
   ];
 
   return (
