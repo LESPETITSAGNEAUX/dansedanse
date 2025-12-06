@@ -34,7 +34,7 @@ export class AutoCalibrationManager {
   private anchorPoints: AnchorPoint[] = [];
   private driftThreshold: number = 5; // pixels
   private confidenceScore: number = 1.0;
-  private driftHistory: Array<{ timestamp: number; drift: number }> = [];
+  private progressiveDriftHistory: Array<{ timestamp: number; drift: number }> = [];
   private readonly DRIFT_WINDOW = 10; // Surveiller les 10 dernières mesures
 
   constructor() {
@@ -277,15 +277,15 @@ export class AutoCalibrationManager {
       const timestamp = Date.now();
 
       // Détection de drift progressif
-      this.driftHistory.push({ timestamp, drift: currentDrift });
-      if (this.driftHistory.length > this.DRIFT_WINDOW) {
-        this.driftHistory.shift(); // Garder seulement les N dernières mesures
+      this.progressiveDriftHistory.push({ timestamp, drift: currentDrift });
+      if (this.progressiveDriftHistory.length > this.DRIFT_WINDOW) {
+        this.progressiveDriftHistory.shift(); // Garder seulement les N dernières mesures
       }
 
       // Vérifier si le drift a augmenté de manière significative sur la fenêtre
-      if (this.driftHistory.length >= 3) {
-        const lastDrift = this.driftHistory[this.driftHistory.length - 1].drift;
-        const firstDrift = this.driftHistory[0].drift;
+      if (this.progressiveDriftHistory.length >= 3) {
+        const lastDrift = this.progressiveDriftHistory[this.progressiveDriftHistory.length - 1].drift;
+        const firstDrift = this.progressiveDriftHistory[0].drift;
         const driftIncrease = lastDrift - firstDrift;
 
         // Si le drift augmente trop rapidement, déclencher une alerte ou une recalibration plus agressive
