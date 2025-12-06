@@ -1436,3 +1436,42 @@ async function handleWebSocketMessage(
       ws.send(JSON.stringify({ type: "error", payload: { message: `Type de message inconnu: ${message.type}` } }));
   }
 }
+// Vision error logging routes
+app.get("/api/vision/errors", async (_req, res) => {
+  const { visionErrorLogger } = await import("./bot/vision-error-logger");
+  const count = parseInt(_req.query.count as string) || 50;
+  const errors = visionErrorLogger.getRecentErrors(count);
+  res.json(errors);
+});
+
+app.get("/api/vision/errors/critical", async (_req, res) => {
+  const { visionErrorLogger } = await import("./bot/vision-error-logger");
+  const errors = visionErrorLogger.getCriticalErrors();
+  res.json(errors);
+});
+
+app.get("/api/vision/metrics", async (_req, res) => {
+  const { visionErrorLogger } = await import("./bot/vision-error-logger");
+  const windowMs = parseInt(_req.query.window as string) || 3600000;
+  const metrics = visionErrorLogger.getMetrics(windowMs);
+  res.json(metrics);
+});
+
+app.get("/api/vision/report", async (_req, res) => {
+  const { visionErrorLogger } = await import("./bot/vision-error-logger");
+  const report = visionErrorLogger.generateReport();
+  res.type("text/plain").send(report);
+});
+
+app.post("/api/vision/export", async (_req, res) => {
+  const { visionErrorLogger } = await import("./bot/vision-error-logger");
+  const includeScreenshots = _req.body.includeScreenshots === true;
+  const log = visionErrorLogger.exportErrorLog(includeScreenshots);
+  res.type("application/json").send(log);
+});
+
+app.post("/api/vision/clear", async (_req, res) => {
+  const { visionErrorLogger } = await import("./bot/vision-error-logger");
+  visionErrorLogger.clearErrors();
+  res.json({ success: true });
+});

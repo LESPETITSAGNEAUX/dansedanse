@@ -23,6 +23,7 @@ import { diffDetector, DiffDetector } from "../diff-detector";
 import { ocrCache, OCRCache } from "../ocr-cache";
 import { ocrPool, OCRWorkerPool } from "../ocr-pool";
 import { getAutoCalibrationManager, AutoCalibrationManager } from "../auto-calibration";
+import { visionErrorLogger } from "../vision-error-logger";
 
 let Tesseract: any = null;
 let screenshotDesktop: any = null;
@@ -509,6 +510,16 @@ export class GGClubAdapter extends PlatformAdapter {
 
         console.log(`[GGClubAdapter] Auto-recalibration applied for window ${windowHandle}: ${result.reason}`);
 
+        // Log calibration drift
+        if (result.drift) {
+          visionErrorLogger.logCalibrationDrift(
+            windowHandle,
+            result.drift.offsetX,
+            result.drift.offsetY,
+            result.drift.confidence
+          );
+        }
+
         this.emitPlatformEvent("calibration_adjusted", {
           windowHandle,
           drift: result.drift,
@@ -679,6 +690,7 @@ export class GGClubAdapter extends PlatformAdapter {
   }
 
   async detectHeroCards(windowHandle: number): Promise<CardInfo[]> {
+    const startTime = Date.now();
     const screenBuffer = await this.captureScreen(windowHandle);
     const cards: CardInfo[] = [];
 
@@ -692,6 +704,16 @@ export class GGClubAdapter extends PlatformAdapter {
           suit,
           raw: `${rank}${suit[0]}`,
         });
+      } else {
+        // Log failed card detection
+        visionErrorLogger.logCardDetectionError(
+          windowHandle,
+          region,
+          "valid card",
+          `${rank || "?"}${suit?.[0] || "?"}`,
+          0.3,
+          this.debugMode ? screenBuffer : undefined
+        );
       }
     }
 
@@ -703,6 +725,17 @@ export class GGClubAdapter extends PlatformAdapter {
 
       if (!validation.valid) {
         console.warn(`[GGClubAdapter] Invalid hero cards detected: ${validation.errors.join(", ")}`);
+        
+        // Log validation error
+        visionErrorLogger.logCardDetectionError(
+          windowHandle,
+          this.screenLayout.heroCardsRegion,
+          "2 valid cards",
+          notations.join(", "),
+          0.4,
+          this.debugMode ? screenBuffer : undefined
+        );
+
         if (validation.fixedCards) {
           console.log(`[GGClubAdapter] Cards corrected to: ${validation.fixedCards.join(", ")}`);
           return validation.fixedCards.map(notation => ({
@@ -713,6 +746,21 @@ export class GGClubAdapter extends PlatformAdapter {
         }
         return []; // Invalide si pas de correction possible
       }
+    } else if (cards.length !== 0) {
+      // Log incomplete detection
+      visionErrorLogger.logCardDetectionError(
+        windowHandle,
+        this.screenLayout.heroCardsRegion,
+        "2 cards",
+        `${cards.length} cards`,
+        0.5,
+        this.debugMode ? screenBuffer : undefined
+      );
+    }
+
+    const processingTime = Date.now() - startTime;
+    if (processingTime > 300) {
+      visionErrorLogger.logPerformanceIssue(windowHandle, processingTime, this.activeWindows.size);
     }
 
     return cards;
@@ -1331,6 +1379,7 @@ export class GGClubAdapter extends PlatformAdapter {
 
     if (this.tesseractWorker && screenBuffer.length > 0) {
       try {
+        const startTime = Date.now();
         const result = await this.tesseractWorker.recognize(screenBuffer, {
           rectangle: {
             left: region.x,
@@ -1342,6 +1391,34 @@ export class GGClubAdapter extends PlatformAdapter {
 
         const text = result.data.text.trim();
         const confidence = result.data.confidence / 100;
+        const processingTime = Date.now() - startTime;
+
+        // Log low confidence OCR
+        if (confidence < 0.6) {
+          const windowHandle = Array.from(this.activeWindows.keys())[0];
+          if (windowHandle) {
+            visionErrorLogger.logOCRError(
+              parseInt(windowHandle.split('_')[1]),
+              region,
+              result.data.text,
+              text,
+              confidence,
+              this.debugMode ? screenBuffer : undefined
+            );
+          }
+        }
+
+        // Log slow OCR
+        if (processingTime > 200) {
+          const windowHandle = Array.from(this.activeWindows.keys())[0];
+          if (windowHandle) {
+            visionErrorLogger.logPerformanceIssue(
+              parseInt(windowHandle.split('_')[1]),
+              processingTime,
+              this.activeWindows.size
+            );
+          }
+        }
 
         // Cache result
         this.ocrCache.set(screenBuffer, region, text, confidence);
@@ -1353,6 +1430,19 @@ export class GGClubAdapter extends PlatformAdapter {
         };
       } catch (error) {
         console.error("OCR error:", error);
+        
+        // Log OCR failure
+        const windowHandle = Array.from(this.activeWindows.keys())[0];
+        if (windowHandle) {
+          visionErrorLogger.logOCRError(
+            parseInt(windowHandle.split('_')[1]),
+            region,
+            "",
+            null,
+            0,
+            this.debugMode ? screenBuffer : undefined
+          );
+        }
       }
     }
 
