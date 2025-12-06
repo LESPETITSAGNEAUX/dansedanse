@@ -1,9 +1,10 @@
 @echo off
-title GTO Poker Bot - Installation Windows
+title GTO Poker Bot - Installation Windows Complete
 color 0B
 
 echo ========================================
 echo GTO Poker Bot - Installation Windows
+echo Avec compilation des modules natifs
 echo ========================================
 echo.
 
@@ -18,12 +19,12 @@ if %errorLevel% neq 0 (
     exit /b 1
 )
 
-echo [1/5] Verification de Node.js...
+echo [1/8] Verification de Node.js...
 where node >nul 2>&1
 if %errorLevel% neq 0 (
-    echo Node.js non trouve. Veuillez l'installer depuis https://nodejs.org/
-    echo.
-    start https://nodejs.org/
+    echo Node.js non trouve. Installation via winget...
+    winget install OpenJS.NodeJS.LTS -e --accept-source-agreements --accept-package-agreements
+    echo Veuillez redemarrer ce script apres l'installation de Node.js
     pause
     exit /b 1
 ) else (
@@ -31,36 +32,98 @@ if %errorLevel% neq 0 (
 )
 
 echo.
-echo [2/5] Verification de Python...
+echo [2/8] Verification de Python...
 where python >nul 2>&1
 if %errorLevel% neq 0 (
-    echo Python non trouve. Installation recommandee depuis https://www.python.org/
-    echo L'application fonctionnera, mais certaines fonctionnalites avancees seront desactivees.
+    echo Python non trouve. Installation via winget...
+    winget install Python.Python.3.11 -e --accept-source-agreements --accept-package-agreements
+    echo Python installe
 ) else (
     for /f "tokens=*" %%i in ('python --version') do echo %%i detecte
 )
 
 echo.
-echo [3/5] Installation des outils de build npm...
-call npm install -g node-gyp 2>nul
-echo Outils npm installes
+echo [3/8] Verification de Visual Studio Build Tools...
+if exist "%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" (
+    echo Visual Studio Build Tools detectes
+) else (
+    echo Visual Studio Build Tools non detectes.
+    echo.
+    echo Telechargement et installation des Build Tools...
+    echo Cela peut prendre 10-15 minutes...
+    echo.
+    curl -L -o "%TEMP%\vs_buildtools.exe" "https://aka.ms/vs/17/release/vs_buildtools.exe"
+    "%TEMP%\vs_buildtools.exe" --quiet --wait --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.Windows10SDK.19041 --includeRecommended
+    echo Visual Studio Build Tools installes
+)
 
 echo.
-echo [4/5] Configuration de npm...
-call npm config set msvs_version 2022 2>nul
+echo [4/8] Installation de node-gyp global...
+call npm install -g node-gyp
+echo node-gyp installe
 
 echo.
-echo [5/5] Creation des repertoires...
+echo [5/8] Configuration de npm...
+call npm config set msvs_version 2022
+
+echo.
+echo [6/8] Installation des dependances npm...
+set /p INSTALL_DIR="Entrez le chemin d'installation de GTO Poker Bot (ou appuyez sur Entree pour %CD%): "
+if "%INSTALL_DIR%"=="" set INSTALL_DIR=%CD%
+
+if exist "%INSTALL_DIR%\package.json" (
+    cd /d "%INSTALL_DIR%"
+    call npm install
+    echo Dependances installees
+) else (
+    echo package.json non trouve dans %INSTALL_DIR%
+    echo Passez cette etape si vous n'avez pas encore clone le projet
+)
+
+echo.
+echo [7/8] Compilation de robotjs...
+if exist "%INSTALL_DIR%\package.json" (
+    cd /d "%INSTALL_DIR%"
+    call npm rebuild robotjs 2>nul
+    if %errorLevel% equ 0 (
+        echo robotjs compile avec succes
+    ) else (
+        echo robotjs: compilation echouee (optionnel)
+    )
+)
+
+echo.
+echo [8/8] Compilation du module DXGI...
+if exist "%INSTALL_DIR%\native\binding.gyp" (
+    cd /d "%INSTALL_DIR%\native"
+    call npx node-gyp configure 2>nul
+    call npx node-gyp build 2>nul
+    if %errorLevel% equ 0 (
+        echo Module DXGI compile avec succes
+    ) else (
+        echo Module DXGI: compilation echouee (optionnel)
+    )
+) else (
+    echo Module DXGI: binding.gyp non trouve
+)
+
+echo.
+echo Creation des repertoires de donnees...
 if not exist "%APPDATA%\GTO Poker Bot" mkdir "%APPDATA%\GTO Poker Bot"
 if not exist "%APPDATA%\GTO Poker Bot\logs" mkdir "%APPDATA%\GTO Poker Bot\logs"
 if not exist "%APPDATA%\GTO Poker Bot\config" mkdir "%APPDATA%\GTO Poker Bot\config"
 if not exist "%APPDATA%\GTO Poker Bot\cache" mkdir "%APPDATA%\GTO Poker Bot\cache"
-echo Repertoires crees dans %APPDATA%\GTO Poker Bot
+if not exist "%APPDATA%\GTO Poker Bot\models" mkdir "%APPDATA%\GTO Poker Bot\models"
+echo Repertoires crees
 
 echo.
 echo ========================================
 echo Installation terminee!
 echo ========================================
+echo.
+echo Modules compiles:
+echo   - robotjs: automatisation souris/clavier
+echo   - DXGI: capture d'ecran haute performance
 echo.
 echo Vous pouvez maintenant lancer GTO Poker Bot!
 echo.
