@@ -24,6 +24,7 @@ import { ocrCache, OCRCache } from "../ocr-cache";
 import { ocrPool, OCRWorkerPool } from "../ocr-pool";
 import { getAutoCalibrationManager, AutoCalibrationManager } from "../auto-calibration";
 import { visionErrorLogger } from "../vision-error-logger";
+import { PokerOCREngine, getPokerOCREngine } from "../ml-ocr";
 
 let Tesseract: any = null;
 let screenshotDesktop: any = null;
@@ -138,6 +139,9 @@ export class GGClubAdapter extends PlatformAdapter {
   private autoCalibration: AutoCalibrationManager;
   private enableML: boolean = true; // Added for ML card recognition
   private cardClassifier: any = null; // Placeholder for ML card classifier
+  private pokerOCREngine: PokerOCREngine | null = null;
+  private mlInitPromise: Promise<void> | null = null;
+  private mlConfidenceThreshold: number = 0.75;
 
   constructor() {
     super("GGClub", {
@@ -162,19 +166,28 @@ export class GGClubAdapter extends PlatformAdapter {
     this.autoCalibration = getAutoCalibrationManager();
     this.initializeTesseract();
     ocrPool.initialize();
-    this.initializeCardClassifier();
+    this.mlInitPromise = this.initializeCardClassifier();
   }
 
-  private initializeCardClassifier(): void {
-    // Placeholder for ML card classifier initialization
-    // In a real scenario, this would involve loading a model (e.g., TensorFlow.js)
+  private async initializeCardClassifier(): Promise<void> {
     if (this.enableML) {
       try {
-        // Example: this.cardClassifier = await tf.loadLayersModel('path/to/model.json');
-        console.log("ML Card Classifier initialized (placeholder)");
+        this.pokerOCREngine = await getPokerOCREngine({
+          useMLPrimary: true,
+          useTesseractFallback: true,
+          confidenceThreshold: 0.75,
+          collectTrainingData: true,
+        });
+        if (this.pokerOCREngine) {
+          console.log("[GGClubAdapter] ML PokerOCREngine initialized successfully");
+        } else {
+          console.log("[GGClubAdapter] ML PokerOCREngine not available, using fallback OCR");
+          this.enableML = false;
+        }
       } catch (error) {
-        console.error("Failed to initialize ML Card Classifier:", error);
+        console.error("[GGClubAdapter] Failed to initialize ML PokerOCREngine:", error);
         this.enableML = false;
+        this.pokerOCREngine = null;
       }
     }
   }
@@ -1000,10 +1013,47 @@ export class GGClubAdapter extends PlatformAdapter {
   async detectPot(windowHandle: number): Promise<number> {
     const screenBuffer = await this.captureScreen(windowHandle);
     const region = this.screenLayout.potRegion;
+    const window = this.activeWindows.get(`ggclub_${windowHandle}`);
+    const imageWidth = window?.width || 880;
+    const imageHeight = window?.height || 600;
 
-    // Level 1: OCR principal
-    const ocrResult = await this.performOCR(screenBuffer, region);
-    let potValue = this.parseMoneyValue(ocrResult.text);
+    let potValue = 0;
+    let mlAttempted = false;
+
+    // Ensure ML OCR is initialized before use
+    if (this.mlInitPromise) {
+      await this.mlInitPromise;
+    }
+
+    // Level 0: ML OCR (primary if available)
+    if (this.pokerOCREngine && this.enableML) {
+      mlAttempted = true;
+      try {
+        const regionBuffer = this.extractRegionBuffer(screenBuffer, imageWidth, imageHeight, region);
+        const mlResult = await this.pokerOCREngine.recognizeValue(
+          regionBuffer,
+          region.width,
+          region.height,
+          'pot'
+        );
+        const value = mlResult.value;
+        if (!isNaN(value) && value >= 0 && mlResult.confidence >= this.mlConfidenceThreshold) {
+          potValue = value;
+          console.log(`[GGClubAdapter] ML OCR pot: ${potValue} (conf: ${mlResult.confidence.toFixed(2)}, method: ${mlResult.method})`);
+        } else {
+          console.log(`[GGClubAdapter] ML OCR low confidence (${mlResult.confidence.toFixed(2)}) or invalid value, using fallback`);
+        }
+      } catch (e) {
+        console.warn('[GGClubAdapter] ML OCR pot failed, falling back to Tesseract:', e);
+      }
+    }
+
+    // Level 1: OCR principal (fallback)
+    if (potValue === 0 || isNaN(potValue)) {
+      const ocrResult = await this.performOCR(screenBuffer, region);
+      potValue = this.parseMoneyValue(ocrResult.text);
+      if (isNaN(potValue)) potValue = 0;
+    }
 
     // Level 2: Validation heuristique
     if (potValue > 0) {
@@ -1442,6 +1492,39 @@ export class GGClubAdapter extends PlatformAdapter {
     const ocrResult = await this.performOCR(screenBuffer, region);
     const amount = this.parseMoneyValue(ocrResult.text);
     return amount > 0 ? amount : undefined;
+  }
+
+  private extractRegionBuffer(
+    screenBuffer: Buffer,
+    srcWidth: number,
+    srcHeight: number,
+    region: ScreenRegion,
+    channels: number = 4
+  ): Buffer {
+    const clampedX = Math.max(0, Math.min(region.x, srcWidth - 1));
+    const clampedY = Math.max(0, Math.min(region.y, srcHeight - 1));
+    const clampedWidth = Math.min(region.width, srcWidth - clampedX);
+    const clampedHeight = Math.min(region.height, srcHeight - clampedY);
+    
+    const output = Buffer.alloc(clampedWidth * clampedHeight * channels);
+    const maxSrcIdx = screenBuffer.length;
+    
+    for (let dy = 0; dy < clampedHeight; dy++) {
+      for (let dx = 0; dx < clampedWidth; dx++) {
+        const srcX = clampedX + dx;
+        const srcY = clampedY + dy;
+        const srcIdx = (srcY * srcWidth + srcX) * channels;
+        const dstIdx = (dy * clampedWidth + dx) * channels;
+        
+        if (srcIdx >= 0 && srcIdx + channels <= maxSrcIdx) {
+          for (let c = 0; c < channels; c++) {
+            output[dstIdx + c] = screenBuffer[srcIdx + c];
+          }
+        }
+      }
+    }
+    
+    return output;
   }
 
   private async performOCR(screenBuffer: Buffer, region: ScreenRegion): Promise<OCRResult> {

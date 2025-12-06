@@ -74,10 +74,19 @@ export class PokerOCREngine {
   async initialize(): Promise<void> {
     if (this.initialized) return;
 
-    await this.cardClassifier.initialize();
+    try {
+      await this.cardClassifier.initialize();
+    } catch (e) {
+      console.warn('[PokerOCREngine] CardClassifier initialization failed:', e);
+    }
 
     if (this.config.collectTrainingData) {
-      this.dataCollector = await getDataCollector();
+      try {
+        this.dataCollector = await getDataCollector();
+      } catch (e) {
+        console.warn('[PokerOCREngine] DataCollector not available:', e);
+        this.dataCollector = null;
+      }
     }
 
     if (this.config.useTesseractFallback) {
@@ -248,7 +257,7 @@ export class PokerOCREngine {
       this.stats.tesseractCalls++;
     }
 
-    const correctionResult = ocrErrorCorrector.correctPot(text);
+    const correctionResult = ocrErrorCorrector.correctPotValue(text);
     const finalText = correctionResult.corrected;
 
     ocrCache.set(imageBuffer, { x: 0, y: 0, width, height }, finalText, confidence);
@@ -425,11 +434,23 @@ export class PokerOCREngine {
 }
 
 let engineInstance: PokerOCREngine | null = null;
+let initializationFailed: boolean = false;
 
-export async function getPokerOCREngine(config?: Partial<OCRConfig>): Promise<PokerOCREngine> {
+export async function getPokerOCREngine(config?: Partial<OCRConfig>): Promise<PokerOCREngine | null> {
+  if (initializationFailed) {
+    return null;
+  }
+  
   if (!engineInstance) {
-    engineInstance = new PokerOCREngine(config);
-    await engineInstance.initialize();
+    try {
+      engineInstance = new PokerOCREngine(config);
+      await engineInstance.initialize();
+    } catch (error) {
+      console.error('[PokerOCREngine] Factory initialization failed:', error);
+      initializationFailed = true;
+      engineInstance = null;
+      return null;
+    }
   }
   return engineInstance;
 }

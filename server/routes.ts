@@ -1371,11 +1371,10 @@ function registerVisionRoutes(app: Express): void {
       res.status(500).json({ error: "Failed to clear vision errors" });
     }
   });
-}
 
-// Replay Viewer routes
-// Range Updater Routes
-app.get("/api/ranges/status", async (_req, res) => {
+  // Replay Viewer routes
+  // Range Updater Routes
+  app.get("/api/ranges/status", async (_req, res) => {
   try {
     const { getRangeUpdater } = await import("./bot/range-updater");
     const updater = getRangeUpdater();
@@ -1464,8 +1463,8 @@ app.get("/api/replay/analytics/:sessionId", async (req, res) => {
     console.error("Error analyzing replay:", error);
     res.status(500).json({ error: "Failed to analyze session" });
   }
-});
-
+  });
+}
 
 async function handleWebSocketMessage(
   ws: WebSocket, 

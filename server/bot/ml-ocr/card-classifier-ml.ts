@@ -23,16 +23,14 @@ const SUITS = ['s', 'h', 'd', 'c']; // spades, hearts, diamonds, clubs
 const DIGITS = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.', ',', 'K', 'M', 'B', '$', '€'];
 
 export class CardClassifier {
-  private rankNetwork: NeuralNetwork;
-  private suitNetwork: NeuralNetwork;
-  private digitNetwork: NeuralNetwork;
+  private rankNetwork: NeuralNetwork | null = null;
+  private suitNetwork: NeuralNetwork | null = null;
+  private digitNetwork: NeuralNetwork | null = null;
   private initialized: boolean = false;
   private inputSize: number = 32;
 
   constructor() {
-    this.rankNetwork = this.createRankNetwork();
-    this.suitNetwork = this.createSuitNetwork();
-    this.digitNetwork = this.createDigitNetwork();
+    // Lazy initialization - networks created in initialize()
   }
 
   private createRankNetwork(): NeuralNetwork {
@@ -72,6 +70,11 @@ export class CardClassifier {
     if (this.initialized) return;
     
     try {
+      // Lazy create networks
+      this.rankNetwork = this.createRankNetwork();
+      this.suitNetwork = this.createSuitNetwork();
+      this.digitNetwork = this.createDigitNetwork();
+      
       const { promises: fs } = await import('fs');
       const path = await import('path');
       
@@ -155,6 +158,10 @@ export class CardClassifier {
   }
 
   classifyRank(imageData: Buffer | Uint8Array, width: number, height: number): ClassificationResult {
+    if (!this.rankNetwork) {
+      return { class: '?', confidence: 0, allProbabilities: new Map() };
+    }
+    
     const input = this.preprocessImage(imageData, width, height);
     const probabilities = this.rankNetwork.predict(input);
     
@@ -178,6 +185,10 @@ export class CardClassifier {
   }
 
   classifySuit(imageData: Buffer | Uint8Array, width: number, height: number): ClassificationResult {
+    if (!this.suitNetwork) {
+      return { class: '?', confidence: 0, allProbabilities: new Map() };
+    }
+    
     const input = this.preprocessForSuit(imageData, width, height);
     const probabilities = this.suitNetwork.predict(input);
     
@@ -201,6 +212,10 @@ export class CardClassifier {
   }
 
   classifyDigit(imageData: Buffer | Uint8Array, width: number, height: number): ClassificationResult {
+    if (!this.digitNetwork) {
+      return { class: '?', confidence: 0, allProbabilities: new Map() };
+    }
+    
     const input = this.preprocessImage(imageData, width, height);
     const probabilities = this.digitNetwork.predict(input);
     
@@ -241,6 +256,11 @@ export class CardClassifier {
   }
 
   async saveWeights(path: string): Promise<void> {
+    if (!this.rankNetwork || !this.suitNetwork || !this.digitNetwork) {
+      console.warn('[CardClassifier] Cannot save weights - networks not initialized');
+      return;
+    }
+    
     const { promises: fs } = await import('fs');
     const pathModule = await import('path');
     
