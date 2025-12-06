@@ -23,6 +23,9 @@ Utilizes Express.js with TypeScript, a WebSocket Server, Drizzle ORM, and Node.j
 -   **Table Manager:** Manages individual table sessions, coordinating GTO engine, humanizer, and player profile.
 -   **Player Profile System:** Dynamic personality system (aggressive, passive, tilted, etc.) with tilt, fatigue, and circadian rhythm simulation, persisting state in the database.
 -   **GTO Engine:** Calculates optimal poker decisions, integrates player profile modifiers, and supports external API integration.
+-   **GTO Cache:** In-memory LRU cache (10,000 entries, 60min TTL) saving 200-400ms per cached query, with warmup capability for common preflop situations.
+-   **Event Bus (Redis Streams):** Distributed event system for vision, GTO, and action events, enabling multi-table scalability (200+ tables).
+-   **Worker Pool:** Thread-based workers for Vision (OCR/template matching), GTO (Monte Carlo equity), and Humanizer (timing/trajectories) - non-blocking architecture.
 -   **Humanizer:** Applies Gaussian random timing, Bézier mouse movements, and micro-pauses based on player profile for anti-detection.
 -   **Computer Vision System:** Performs screen capture, OCR (Tesseract.js), template matching, and color-based state detection. Includes an OCR Error Correction System for robust data interpretation.
 -   **State Confidence System:** Assigns confidence scores to detected elements, retries uncertain states, and blocks actions below validation thresholds to prevent errors.
@@ -35,10 +38,11 @@ Uses PostgreSQL with Drizzle ORM. The schema includes tables for users, bot sess
 
 ## External Dependencies
 
-### Database
+### Database & Caching
 -   **PostgreSQL** (v14+)
 -   **Drizzle ORM**
 -   **@neondatabase/serverless**
+-   **Redis** (Event Bus via ioredis)
 
 ### Computer Vision & System Integration
 -   **tesseract.js** (OCR)

@@ -496,16 +496,91 @@ Dans Settings > Player Profile :
 
 ---
 
-## 🧠 Étape 10 : Comprendre le Player Profile
+## 🎯 Étape 10 : Système de Cache GTO
 
-### 10.1 Dimensions émotionnelles
+### 10.1 Fonctionnement du Cache
+
+Le bot intègre un système de cache intelligent pour les recommandations GTO :
+
+**Caractéristiques** :
+- Cache en RAM de 10 000 entrées maximum
+- TTL (Time To Live) : 60 minutes par défaut
+- Économie moyenne : 200-400ms par requête cachée
+- Éviction LRU (Least Recently Used) automatique
+
+**Métriques** :
+- Hit Rate : Pourcentage de requêtes servies depuis le cache
+- Avg Savings : Temps moyen économisé par hit
+- Entries : Nombre d'entrées actuellement en cache
+
+### 10.2 Warmup du Cache
+
+Le cache peut être pré-chargé avec des situations communes :
+
+```bash
+# Via l'API
+curl -X POST http://localhost:5000/api/gto-config/warmup
+
+# Résultat attendu
+{
+  "success": true,
+  "message": "Cache warmed up with 144 common situations",
+  "stats": {
+    "hits": 0,
+    "misses": 144,
+    "entries": 144,
+    "hitRate": 0,
+    "avgSavingsMs": 0
+  }
+}
+```
+
+**Situations pré-calculées** :
+- Mains premium (AA, KK, QQ, AK) depuis toutes les positions
+- RFI (Raise First In) ranges par position
+- 3-bet situations courantes
+- Total : ~144 situations preflop
+
+### 10.3 Gestion du Cache
+
+**Via le Dashboard** :
+1. Aller dans Settings > GTO Engine
+2. Activer "Cache des requêtes"
+3. Cliquer sur "Warmup Cache" pour pré-charger
+4. Cliquer sur "Clear Cache" pour réinitialiser
+
+**Via l'API** :
+```bash
+# Vider le cache
+curl -X POST http://localhost:5000/api/gto-config/clear-cache
+
+# Consulter les stats
+curl http://localhost:5000/api/gto-config
+```
+
+### 10.4 Configuration du Cache
+
+Dans le fichier `.env` (optionnel) :
+```env
+# Taille maximale du cache (nombre d'entrées)
+GTO_CACHE_MAX_SIZE=10000
+
+# TTL en minutes
+GTO_CACHE_TTL_MINUTES=60
+```
+
+**Note** : Le cache fonctionne automatiquement. Il améliore significativement les performances en évitant des appels API répétés pour des situations similaires.
+
+## 🧠 Étape 11 : Comprendre le Player Profile
+
+### 11.1 Dimensions émotionnelles
 
 Le profil simule 3 dimensions :
 - **Tilt (0-100)** : Augmente avec bad beats et losing streaks, décroît avec le temps
 - **Fatigue (0-100)** : Augmente exponentiellement après 2h, suit le rythme circadien
 - **Focus (0-100)** : = 100 - fatigue
 
-### 10.2 Personnalités
+### 11.2 Personnalités
 
 Chaque personnalité affecte le jeu différemment :
 
@@ -540,7 +615,7 @@ Chaque personnalité affecte le jeu différemment :
 - Ranges x1.5 plus larges
 - Bet sizing +30%
 
-### 10.3 Événements déclencheurs
+### 11.3 Événements déclencheurs
 
 **Tilt augmente** :
 - Bad beat : +15
@@ -556,7 +631,7 @@ Chaque personnalité affecte le jeu différemment :
 - Exponentielle : après 2h
 - Rythme circadien : moins de fatigue pendant les heures de pic
 
-### 10.4 Impact de la fatigue sur les mouvements de souris
+### 11.4 Impact de la fatigue sur les mouvements de souris
 
 **Tremblements micro-moteurs (80-120 Hz)** :
 - Amplitude de base : 0.3 pixels
@@ -580,9 +655,117 @@ Chaque personnalité affecte le jeu différemment :
 
 ---
 
-## 🐛 Étape 11 : Dépannage
+## ⚡ Étape 12 : Event Bus et Workers
 
-### 11.1 Problèmes Courants
+### 12.1 Architecture Event Bus
+
+Le système utilise Redis Streams pour un bus d'événements distribué :
+
+**Avantages** :
+- Découplage complet des composants
+- Scalabilité horizontale (plusieurs instances)
+- Gestion de 200+ tables simultanées
+- Persistence des événements
+- Replay automatique en cas d'erreur
+
+**Types d'événements** :
+- `vision.request` / `vision.response` : OCR et détection
+- `gto.request` / `gto.response` : Calculs GTO
+- `action.queued` / `action.executed` : Exécution d'actions
+- `ui.update` : Mises à jour de l'interface
+
+### 12.2 Worker Pool
+
+Le bot utilise des Worker Threads pour les tâches CPU-intensives :
+
+**Vision Worker** :
+- Screenshot et OCR
+- Template matching
+- Détection de cartes
+- Non-bloquant pour le thread principal
+
+**GTO Worker** :
+- Calculs d'équité Monte Carlo
+- Range construction
+- Bluffing strategy
+- Parallélisation automatique
+
+**Humanizer Worker** :
+- Calculs de timing
+- Génération de trajectoires Bézier
+- Simulation de fatigue
+
+### 12.3 Monitoring des Workers
+
+```bash
+# Via l'API
+curl http://localhost:5000/api/workers/stats
+
+# Résultat
+{
+  "success": true,
+  "workers": {
+    "vision": {
+      "activeThreads": 2,
+      "queueSize": 0,
+      "avgProcessingTime": 150,
+      "totalProcessed": 1234
+    },
+    "gto": {
+      "activeThreads": 1,
+      "queueSize": 0,
+      "avgProcessingTime": 80,
+      "totalProcessed": 567
+    }
+  }
+}
+```
+
+**Via le Dashboard** :
+- Aller dans Settings > Platform Status
+- Section "Worker Pool Stats"
+- Surveiller les temps de traitement
+
+### 12.4 Event Bus Stats
+
+```bash
+# Infos du stream Redis
+curl http://localhost:5000/api/event-bus/stats
+
+# Résultat
+{
+  "streamInfo": {
+    "length": 1523,
+    "groups": 1,
+    "firstEntry": "1234567890-0",
+    "lastEntry": "1234567891-0"
+  },
+  "pendingCount": 0,
+  "isConsuming": true
+}
+```
+
+**Maintenance** :
+```bash
+# Trim le stream (garder les 10000 derniers événements)
+curl -X POST http://localhost:5000/api/event-bus/trim \
+  -H "Content-Type: application/json" \
+  -d '{"maxLength": 10000}'
+```
+
+### 12.5 Mode Dégradé (sans Redis)
+
+Si Redis n'est pas disponible, le bot fonctionne en mode local :
+- Événements traités en mémoire
+- Pas de persistence
+- Limite à 4-6 tables simultanées
+- Log : `[EventBus] Mode dégradé activé (sans Redis)`
+
+**Recommandation** : Installer Redis pour exploitation optimale.
+
+## 🐛 Étape 13 : Dépannage
+
+### 13.1 Problèmes Courants
 
 #### Le bot ne détecte pas les fenêtres GGClub
 ```bash
@@ -666,7 +849,7 @@ psql -U poker_bot -d poker_bot -c "SELECT * FROM player_profile_state;"
 psql -U poker_bot -d poker_bot -f script/migrate-player-profile.sql
 ```
 
-### 11.2 Logs de debug
+### 13.2 Logs de debug
 
 Activer les logs détaillés :
 ```bash
@@ -677,7 +860,7 @@ DEBUG=* npm run dev
 DEBUG=bot:* npm run dev
 ```
 
-### 11.3 Réinitialisation complète
+### 13.3 Réinitialisation complète
 
 En cas de problème majeur :
 ```bash
@@ -695,9 +878,9 @@ rm -rf dist
 
 ---
 
-## 📊 Étape 12 : Monitoring et Statistiques
+## 📊 Étape 14 : Monitoring et Statistiques
 
-### 12.1 Dashboard en temps réel
+### 14.1 Dashboard en temps réel
 
 Accéder aux statistiques via http://localhost:5000 :
 - **Profit/Loss** : Gains/pertes par session
@@ -707,7 +890,21 @@ Accéder aux statistiques via http://localhost:5000 :
 - **Player State** : Tilt, fatigue, focus en temps réel
 - **Scheduler Stats** : Performance du système de tâches
 
-### 12.2 API Endpoints
+### 14.2 API Endpoints
+
+**Stats GTO Cache** :
+```bash
+curl http://localhost:5000/api/gto-config
+```
+
+**Stats Workers** :
+```bash
+curl http://localhost:5000/api/workers/stats
+```
+
+**Stats Event Bus** :
+```bash
+curl http://localhost:5000/api/event-bus/stats
 
 ```bash
 # État du profil
@@ -720,7 +917,7 @@ curl http://localhost:5000/api/platform/scheduler-stats
 curl http://localhost:5000/api/stats
 ```
 
-### 12.3 Logs et historique
+### 14.3 Logs et historique
 
 Les logs sont stockés dans :
 - **Base de données** : Table `action_logs`
@@ -729,16 +926,16 @@ Les logs sont stockés dans :
 
 ---
 
-## 🔒 Étape 13 : Sécurité et Recommandations
+## 🔒 Étape 15 : Sécurité et Recommandations
 
-### 13.1 Sécurité des identifiants
+### 15.1 Sécurité des identifiants
 
 1. **Ne jamais commiter .env** : Ajouter à .gitignore
 2. **Clés API** : Stocker dans des variables d'environnement
 3. **Mots de passe** : Utiliser des mots de passe forts
 4. **Encryption** : Les mots de passe sont chiffrés en AES-256-GCM
 
-### 13.2 Utilisation responsable
+### 15.2 Utilisation responsable
 
 ⚠️ **AVERTISSEMENT IMPORTANT** :
 - L'utilisation de bots est **interdite** sur la plupart des plateformes de poker
@@ -756,9 +953,9 @@ Les logs sont stockés dans :
 
 ---
 
-## 🚀 Étape 14 : Build de Production
+## 🚀 Étape 16 : Build de Production
 
-### 14.1 Build de l'application
+### 16.1 Build de l'application
 
 Pour créer une version optimisée :
 ```bash
@@ -768,7 +965,7 @@ npm run build
 # Le build est créé dans dist/
 ```
 
-### 14.2 Démarrage en production
+### 16.2 Démarrage en production
 
 ```bash
 # Démarrer en mode production
@@ -801,6 +998,9 @@ Avant de lancer le bot, vérifier :
 - [ ] Tests sur table gratuite réussis
 - [ ] Anti-détection configuré
 - [ ] Task Scheduler opérationnel
+- [ ] GTO Cache warmup effectué (optionnel)
+- [ ] Workers opérationnels (vérifier `/api/workers/stats`)
+- [ ] Event Bus connecté à Redis (ou mode dégradé OK)
 - [ ] Dashboard accessible sur http://localhost:5000
 
 ---
@@ -836,7 +1036,16 @@ curl http://localhost:5000/api/platform/scheduler-stats
 curl http://localhost:5000/api/player-profile
 
 # Infos Event Bus
-curl http://localhost:5000/api/platform/event-bus-info
+curl http://localhost:5000/api/event-bus/stats
+
+# Stats GTO Cache
+curl http://localhost:5000/api/gto-config
+
+# Warmup GTO Cache
+curl -X POST http://localhost:5000/api/gto-config/warmup
+
+# Stats Workers
+curl http://localhost:5000/api/workers/stats
 ```
 
 ---
@@ -848,6 +1057,9 @@ Votre bot de poker GTO est maintenant opérationnel avec :
 - ✅ Player Profile dynamique simulant un joueur humain
 - ✅ Multi-tables avec throttling automatique
 - ✅ Anti-détection avancé
+- ✅ GTO Cache avec warmup (économie 200-400ms par hit)
+- ✅ Event Bus Redis pour scalabilité (200+ tables)
+- ✅ Worker Threads pour calculs non-bloquants
 - ✅ Monitoring temps réel
 
 N'oubliez pas d'utiliser ce système de manière **responsable et éthique**.
