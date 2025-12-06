@@ -127,6 +127,15 @@ export class SimulatedGtoAdapter implements GtoAdapter {
   private connected = false;
   
   async getRecommendation(context: HandContext): Promise<GtoRecommendation> {
+    // Check cache first
+    const { getGtoCache } = await import("./gto-cache");
+    const cache = getGtoCache();
+    const cached = cache.get(context);
+    
+    if (cached) {
+      return cached;
+    }
+    
     const handStrength = getHandStrength(context.heroCards);
     const boardTexture = evaluateBoardTexture(context.communityCards);
     
@@ -156,7 +165,7 @@ export class SimulatedGtoAdapter implements GtoAdapter {
       const safeModeManager = getSafeModeManager();
       
       if (safeModeManager.shouldFoldBorderlineHand(handStrength, context.facingBet, context.potSize)) {
-        return {
+        const result = {
           actions: [
             { action: "FOLD", probability: 0.95, ev: 0 },
             { action: "CALL", probability: 0.05, ev: -0.1 },
@@ -164,12 +173,24 @@ export class SimulatedGtoAdapter implements GtoAdapter {
           bestAction: "FOLD",
           confidence: 0.90,
         };
+        
+        // Cache the result
+        const { getGtoCache } = await import("./gto-cache");
+        getGtoCache().set(context, result);
+        
+        return result;
       }
     } catch (error) {
       // Safe mode non disponible, continuer normalement
     }
     
-    return this.generateRecommendation(context, handStrength, boardTexture, modifiers);
+    const result = this.generateRecommendation(context, handStrength, boardTexture, modifiers);
+    
+    // Cache the result
+    const { getGtoCache } = await import("./gto-cache");
+    getGtoCache().set(context, result);
+    
+    return result;
   }
   
   private generateRecommendation(
@@ -390,15 +411,31 @@ export class GtoWizardAdapter implements GtoAdapter {
   }
   
   async getRecommendation(context: HandContext): Promise<GtoRecommendation> {
+    // Check cache first
+    const { getGtoCache } = await import("./gto-cache");
+    const cache = getGtoCache();
+    const cached = cache.get(context);
+    
+    if (cached) {
+      return cached;
+    }
+    
     if (!this.connected) {
-      return this.fallbackAdapter.getRecommendation(context);
+      const result = await this.fallbackAdapter.getRecommendation(context);
+      cache.set(context, result);
+      return result;
     }
     
     try {
-      return this.fallbackAdapter.getRecommendation(context);
+      // TODO: Implement actual GTO Wizard API call here
+      const result = await this.fallbackAdapter.getRecommendation(context);
+      cache.set(context, result);
+      return result;
     } catch (error) {
       console.error("GTO Wizard API error, falling back to simulation:", error);
-      return this.fallbackAdapter.getRecommendation(context);
+      const result = await this.fallbackAdapter.getRecommendation(context);
+      cache.set(context, result);
+      return result;
     }
   }
   

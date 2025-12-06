@@ -1,4 +1,3 @@
-
 import { getEventBus } from "./bot/event-bus";
 
 import type { Express } from "express";
@@ -6,7 +5,7 @@ import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { storage } from "./storage";
 import { getTableManager, TableEvent, TableState } from "./bot/table-manager";
-import { getGtoAdapter, initializeGtoAdapter } from "./bot/gto-engine";
+import { getGtoAdapter, initializeGtoAdapter, SimulatedGtoAdapter } from "./bot/gto-engine";
 import { getHumanizer, updateHumanizerFromConfig } from "./bot/humanizer";
 import { getPlatformManager, getSupportedPlatforms, PlatformManagerConfig } from "./bot/platform-manager";
 import { getTaskScheduler } from "./bot/task-scheduler";
@@ -111,10 +110,10 @@ export async function registerRoutes(
 
   wss.on("connection", (ws, req) => {
     connectedClients.add(ws);
-    
+
     const tempDeviceId = generateDeviceId();
     let currentDeviceId = tempDeviceId;
-    
+
     console.log(`Client WebSocket connecté (temp: ${tempDeviceId})`);
 
     const tableManager = getTableManager();
@@ -157,12 +156,12 @@ export async function registerRoutes(
 
     ws.on("close", () => {
       connectedClients.delete(ws);
-      
+
       if (connectedDevices.has(currentDeviceId)) {
         const device = connectedDevices.get(currentDeviceId);
         connectedDevices.delete(currentDeviceId);
         console.log(`Device déconnecté: ${device?.deviceName} (${currentDeviceId})`);
-        
+
         broadcastToClients({
           type: "device_disconnected",
           payload: { 
@@ -401,17 +400,17 @@ export async function registerRoutes(
 
   app.get("/api/gto-config", async (req, res) => {
     try {
-      let config = await storage.getGtoConfig();
-      if (!config) {
-        config = await storage.createDefaultGtoConfig();
-      }
+      const config = await storage.getGtoConfig();
+      const adapter = getGtoAdapter();
+      const { getGtoCache } = await import("./bot/gto-cache");
+      const cache = getGtoCache();
+      const cacheStats = cache.getStats();
 
-      const gtoAdapter = getGtoAdapter();
-
-      res.json({ 
+      res.json({
         config,
-        connected: gtoAdapter.isConnected(),
-        usingSimulation: config.fallbackToSimulation || !config.apiKey
+        connected: adapter.isConnected(),
+        usingSimulation: adapter instanceof SimulatedGtoAdapter,
+        cache: cacheStats,
       });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -421,21 +420,53 @@ export async function registerRoutes(
   app.patch("/api/gto-config", async (req, res) => {
     try {
       const updates = req.body;
-
       const config = await storage.updateGtoConfig(updates);
 
+      // Reinitialize GTO adapter with new config
       await initializeGtoAdapter({
-        apiEndpoint: config.apiEndpoint ?? undefined,
-        apiKey: config.apiKey ?? undefined,
-        useSimulation: config.fallbackToSimulation ?? true,
-      });
-
-      broadcastToClients({
-        type: "gto_config_updated",
-        payload: { config }
+        apiEndpoint: config.apiEndpoint,
+        apiKey: config.apiKey,
+        useSimulation: !config.enabled || !config.apiKey,
+        useAdvanced: true,
       });
 
       res.json({ success: true, config });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/gto-config/warmup", async (req, res) => {
+    try {
+      const { getGtoCache, getCommonPreflopSituations } = await import("./bot/gto-cache");
+      const cache = getGtoCache();
+
+      // Warmup with common preflop situations
+      const situations = getCommonPreflopSituations();
+      await cache.warmup(situations);
+
+      const stats = cache.getStats();
+
+      res.json({ 
+        success: true, 
+        message: `Cache warmed up with ${situations.length} common situations`,
+        stats,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/gto-config/clear-cache", async (req, res) => {
+    try {
+      const { getGtoCache } = await import("./bot/gto-cache");
+      const cache = getGtoCache();
+      cache.clear();
+
+      res.json({ 
+        success: true, 
+        message: "GTO cache cleared",
+      });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -554,7 +585,7 @@ export async function registerRoutes(
       const { getWorkerManager } = await import("./bot/workers/worker-manager");
       const workerManager = getWorkerManager();
       const stats = workerManager.getStats();
-      
+
       res.json({ 
         success: true,
         workers: stats,
@@ -831,7 +862,7 @@ export async function registerRoutes(
     try {
       const { getSafeModeManager } = await import("./bot/safe-mode");
       const safeModeManager = getSafeModeManager();
-      
+
       res.json({
         currentMode: safeModeManager.getCurrentMode(),
         config: safeModeManager.getConfig(),
@@ -848,9 +879,9 @@ export async function registerRoutes(
     try {
       const { getSafeModeManager } = await import("./bot/safe-mode");
       const safeModeManager = getSafeModeManager();
-      
+
       safeModeManager.updateConfig(req.body);
-      
+
       res.json({
         success: true,
         config: safeModeManager.getConfig(),
@@ -865,9 +896,9 @@ export async function registerRoutes(
     try {
       const { getSafeModeManager } = await import("./bot/safe-mode");
       const safeModeManager = getSafeModeManager();
-      
+
       safeModeManager.reset();
-      
+
       res.json({
         success: true,
         currentMode: safeModeManager.getCurrentMode(),
@@ -1027,7 +1058,7 @@ export async function registerRoutes(
       const eventBus = getEventBus();
       const streamInfo = await eventBus.getStreamInfo();
       const pendingCount = await eventBus.getPendingCount();
-      
+
       res.json({
         streamInfo,
         pendingCount,
@@ -1043,9 +1074,9 @@ export async function registerRoutes(
     try {
       const { maxLength = 10000 } = req.body;
       const eventBus = getEventBus();
-      
+
       await eventBus.trimStream(maxLength);
-      
+
       res.json({ success: true, message: `Stream trimmed to ${maxLength} events` });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -1053,13 +1084,13 @@ export async function registerRoutes(
   });
 
   // ===== REMOTE CONTROL API FOR MULTI-DEVICE SYNC =====
-  
+
   app.get("/api/remote/status", async (_req, res) => {
     try {
       const session = await storage.getActiveBotSession();
       const stats = tableManager.getStats();
       const platformManager = getPlatformManager();
-      
+
       res.json({
         session: session ? {
           id: session.id,
@@ -1081,15 +1112,15 @@ export async function registerRoutes(
     try {
       const { enabled } = req.body;
       const previousState = autoPlayEnabled;
-      
+
       if (typeof enabled === "boolean") {
         autoPlayEnabled = enabled;
       } else {
         autoPlayEnabled = !autoPlayEnabled;
       }
-      
+
       const platformManager = getPlatformManager();
-      
+
       if (autoPlayEnabled !== previousState) {
         try {
           if (autoPlayEnabled) {
@@ -1101,7 +1132,7 @@ export async function registerRoutes(
           console.error("Erreur changement auto-play:", error);
         }
       }
-      
+
       broadcastToClients({
         type: "auto_play_changed",
         payload: {
@@ -1110,7 +1141,7 @@ export async function registerRoutes(
           timestamp: Date.now(),
         }
       });
-      
+
       res.json({
         success: true,
         autoPlayEnabled,
@@ -1165,7 +1196,7 @@ async function handleWebSocketMessage(
     case "device_register": {
       const { deviceType, deviceName } = message.payload || {};
       const deviceId = message.payload?.deviceId || currentDeviceId;
-      
+
       const device: ConnectedDevice = {
         ws,
         deviceId,
@@ -1174,10 +1205,10 @@ async function handleWebSocketMessage(
         connectedAt: new Date(),
         lastPing: new Date(),
       };
-      
+
       connectedDevices.set(deviceId, device);
       console.log(`Device enregistré: ${device.deviceName} (${deviceType}) - ${deviceId}`);
-      
+
       ws.send(JSON.stringify({
         type: "device_registered",
         payload: {
@@ -1186,7 +1217,7 @@ async function handleWebSocketMessage(
           deviceName: device.deviceName,
         }
       }));
-      
+
       broadcastToDevices({
         type: "device_connected",
         payload: {
@@ -1196,7 +1227,7 @@ async function handleWebSocketMessage(
           connectedDevices: getConnectedDevicesInfo(),
         }
       }, deviceId);
-      
+
       return { newDeviceId: deviceId };
     }
 
@@ -1217,15 +1248,15 @@ async function handleWebSocketMessage(
     case "toggle_auto_play": {
       const newState = message.payload?.enabled;
       const previousState = autoPlayEnabled;
-      
+
       if (typeof newState === "boolean") {
         autoPlayEnabled = newState;
       } else {
         autoPlayEnabled = !autoPlayEnabled;
       }
-      
+
       console.log(`Auto-play ${autoPlayEnabled ? "activé" : "désactivé"} par ${currentDeviceId}`);
-      
+
       if (autoPlayEnabled !== previousState) {
         try {
           if (autoPlayEnabled) {
@@ -1237,7 +1268,7 @@ async function handleWebSocketMessage(
           console.error("Erreur changement auto-play:", error);
         }
       }
-      
+
       broadcastToClients({
         type: "auto_play_changed",
         payload: {
@@ -1246,7 +1277,7 @@ async function handleWebSocketMessage(
           timestamp: Date.now(),
         }
       });
-      
+
       break;
     }
 
@@ -1272,7 +1303,7 @@ async function handleWebSocketMessage(
         const session = await storage.getActiveBotSession();
         const stats = tableManager.getStats();
         const tables = tableManager.getAllTableStates();
-        
+
         ws.send(JSON.stringify({
           type: "session_state",
           payload: {

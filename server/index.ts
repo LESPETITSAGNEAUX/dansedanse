@@ -74,18 +74,45 @@ app.use((req, res, next) => {
   try {
     const { initializeEventBus } = await import("./bot/event-bus");
     const { registerEventHandlers } = await import("./bot/event-handlers");
-    
+
     const eventBus = await initializeEventBus();
     await registerEventHandlers(eventBus);
-    
+
     // Start consuming events in background
     eventBus.startConsuming().catch(error => {
       log(`Event bus consumer error: ${error}`);
     });
-    
+
     log("Event bus initialized and consuming events");
   } catch (error) {
     log(`Warning: Could not initialize event bus: ${error}`);
+  }
+
+  const { gtoConfig } = await import("./config");
+  const { initializeGtoAdapter } = await import("./bot/gto-adapter");
+
+  // Initialize GTO adapter
+  await initializeGtoAdapter({
+    apiEndpoint: gtoConfig?.apiEndpoint,
+    apiKey: gtoConfig?.apiKey,
+    useSimulation: !gtoConfig?.enabled || !gtoConfig?.apiKey,
+    useAdvanced: true,
+  });
+
+  // Initialize and warmup GTO cache
+  if (gtoConfig?.cacheEnabled !== false) {
+    try {
+      const { getGtoCache, getCommonPreflopSituations } = await import("./bot/gto-cache");
+      const cache = getGtoCache();
+      const situations = getCommonPreflopSituations();
+
+      // Warmup in background
+      cache.warmup(situations).catch(err => {
+        console.error("[Server] GTO cache warmup failed:", err);
+      });
+    } catch (error) {
+      console.error("[Server] Failed to initialize GTO cache:", error);
+    }
   }
 
   await registerRoutes(httpServer, app);

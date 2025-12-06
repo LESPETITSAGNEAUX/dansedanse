@@ -949,14 +949,30 @@ export class AdvancedGtoAdapter implements GtoAdapter {
   }
 
   async getRecommendation(context: HandContext): Promise<GtoRecommendation> {
+    // Check cache first
+    const { getGtoCache } = await import("./gto-cache");
+    const cache = getGtoCache();
+    const cached = cache.get(context);
+    
+    if (cached) {
+      return cached;
+    }
+    
     const villainProfile = this.playerProfiler.getProfile(this.currentVillainId);
     const exploit = this.playerProfiler.suggestExploit(this.currentVillainId, context);
 
+    let result: GtoRecommendation;
+    
     if (context.street === "preflop") {
-      return this.getPreflopRecommendation(context, villainProfile, exploit);
+      result = this.getPreflopRecommendation(context, villainProfile, exploit);
+    } else {
+      result = await this.getPostflopRecommendation(context, villainProfile, exploit);
     }
-
-    return this.getPostflopRecommendation(context, villainProfile, exploit);
+    
+    // Cache the result
+    cache.set(context, result);
+    
+    return result;
   }
 
   private getPreflopRecommendation(
