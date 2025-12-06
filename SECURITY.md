@@ -35,9 +35,11 @@ Copiez les clés générées dans votre `.env`.
 
 ### 1. Chiffrement de la base de données
 
-- **Ranges GTO**: Chiffrés avec AES-256-GCM avant stockage
-- **Cache GTO**: Recommandations chiffrées en mémoire
+- **Mots de passe**: Chiffrés AES-256-GCM (voir [PASSWORD_STORAGE.md](rag://rag_source_4))
+- **Ranges GTO**: Chiffrés avec AES-256-GCM avant stockage (voir `db-encryption.ts`)
+- **Cache GTO**: Recommandations chiffrées en mémoire (voir `gto-cache.ts`)
 - **Clé rotatable**: Modifiez `DB_ENCRYPTION_KEY` pour re-chiffrer
+- **Logs sécurisés**: Sanitisation automatique des données sensibles (voir `log-sanitizer.ts`)
 
 ### 2. Sanitisation des logs
 
