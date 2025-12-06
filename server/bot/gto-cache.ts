@@ -71,6 +71,16 @@ export class GtoCache {
     entry.hitCount++;
     entry.timestamp = Date.now(); // Refresh timestamp on access
     
+    // Déchiffrer la recommandation si elle est chiffrée
+    try {
+      const { decryptData, isEncrypted } = require("./db-encryption");
+      if (typeof entry.recommendation === "string" && isEncrypted(entry.recommendation)) {
+        return decryptData<GtoRecommendation>(entry.recommendation);
+      }
+    } catch (error) {
+      console.warn("[GtoCache] Decryption failed, returning raw data:", error);
+    }
+    
     return entry.recommendation;
   }
 
@@ -82,11 +92,25 @@ export class GtoCache {
       this.evictLRU();
     }
 
-    this.cache.set(key, {
-      recommendation,
-      timestamp: Date.now(),
-      hitCount: 0,
-    });
+    // Chiffrer la recommandation avant mise en cache
+    try {
+      const { encryptData } = require("./db-encryption");
+      const encryptedRec = encryptData(recommendation);
+      
+      this.cache.set(key, {
+        recommendation: encryptedRec as any, // Stocké chiffré
+        timestamp: Date.now(),
+        hitCount: 0,
+      });
+    } catch (error) {
+      // Fallback sans chiffrement si erreur
+      console.warn("[GtoCache] Encryption failed, storing unencrypted:", error);
+      this.cache.set(key, {
+        recommendation,
+        timestamp: Date.now(),
+        hitCount: 0,
+      });
+    }
   }
 
   private evictLRU(): void {

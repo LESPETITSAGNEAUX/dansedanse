@@ -183,7 +183,7 @@ export class SimulatedGtoAdapter implements GtoAdapter {
       // Safe mode non disponible, continuer normalement
     }
     
-    const result = this.generateRecommendation(context, handStrength, boardTexture, modifiers);
+    const result = await this.generateRecommendation(context, handStrength, boardTexture, modifiers);
     
     // Cache the result
     cache.set(context, result);
@@ -191,12 +191,12 @@ export class SimulatedGtoAdapter implements GtoAdapter {
     return result;
   }
   
-  private generateRecommendation(
+  private async generateRecommendation(
     context: HandContext,
     handStrength: number,
     boardTexture: ReturnType<typeof evaluateBoardTexture>,
     modifiers: { aggressionShift: number; rangeWidening: number; sizingVariance: number } = { aggressionShift: 0, rangeWidening: 1, sizingVariance: 1 }
-  ): GtoRecommendation {
+  ): Promise<GtoRecommendation> {
     const { street, facingBet, potSize, isInPosition, numPlayers } = context;
     
     // Ajuster la force de main selon rangeWidening (tilt = joue plus large)
@@ -206,7 +206,7 @@ export class SimulatedGtoAdapter implements GtoAdapter {
       return this.getPreflopRecommendation(context, adjustedStrength, modifiers);
     }
     
-    return this.getPostflopRecommendation(context, adjustedStrength, boardTexture, modifiers);
+    return await this.getPostflopRecommendation(context, adjustedStrength, boardTexture, modifiers);
   }
   
   private getPreflopRecommendation(
@@ -293,12 +293,12 @@ export class SimulatedGtoAdapter implements GtoAdapter {
     }
   }
   
-  private getPostflopRecommendation(
+  private async getPostflopRecommendation(
     context: HandContext,
     handStrength: number,
     boardTexture: ReturnType<typeof evaluateBoardTexture>,
     modifiers: { aggressionShift: number; rangeWidening: number; sizingVariance: number } = { aggressionShift: 0, rangeWidening: 1, sizingVariance: 1 }
-  ): GtoRecommendation {
+  ): Promise<GtoRecommendation> {
     const { facingBet, potSize, isInPosition, street } = context;
     const positionBonus = isInPosition ? 0.1 : 0;
     const adjustedStrength = handStrength + positionBonus;

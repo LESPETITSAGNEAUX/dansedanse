@@ -277,6 +277,21 @@ export class RangeUpdater {
     // Merge updates from multiple sources
     const mergedRanges = this.mergeRangeUpdates(updates);
 
+    // Chiffrer les ranges avant stockage
+    const { encryptData } = await import("./db-encryption");
+    const encryptedRanges = encryptData(mergedRanges);
+
+    // Stocker les ranges chiffrés dans la DB
+    await storage.createActionLog({
+      logType: "system",
+      message: "Encrypted ranges stored",
+      metadata: {
+        rangeCount: mergedRanges.length,
+        encrypted: true,
+        data: encryptedRanges,
+      },
+    });
+
     // Store in cache for quick access
     const { getGtoCache } = await import("./gto-cache");
     const cache = getGtoCache();
@@ -284,7 +299,7 @@ export class RangeUpdater {
     // Pre-warm cache with new ranges
     await this.warmCacheWithRanges(mergedRanges);
 
-    console.log(`[RangeUpdater] Applied ${mergedRanges.length} range definitions`);
+    console.log(`[RangeUpdater] Applied ${mergedRanges.length} encrypted range definitions`);
   }
 
   private mergeRangeUpdates(updates: RangeUpdate[]): RangeDefinition[] {

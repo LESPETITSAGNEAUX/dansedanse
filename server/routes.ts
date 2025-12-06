@@ -113,12 +113,31 @@ export async function registerRoutes(
   const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
 
   wss.on("connection", (ws, req) => {
-    connectedClients.add(ws);
-
     const tempDeviceId = generateDeviceId();
     let currentDeviceId = tempDeviceId;
+    let isAuthenticated = false;
 
-    console.log(`Client WebSocket connecté (temp: ${tempDeviceId})`);
+    // Extraire le token d'authentification
+    const url = new URL(req.url || "", `ws://${req.headers.host}`);
+    const token = url.searchParams.get("token") || req.headers["x-auth-token"];
+
+    // Valider le token (simple check pour demo, à améliorer)
+    const validToken = process.env.WS_AUTH_TOKEN || "poker-bot-secure-token-2024";
+    
+    if (token !== validToken) {
+      console.warn(`[WebSocket] Tentative de connexion non authentifiée: ${tempDeviceId}`);
+      ws.send(JSON.stringify({
+        type: "error",
+        payload: { message: "Authentication required" }
+      }));
+      ws.close(1008, "Authentication required");
+      return;
+    }
+
+    isAuthenticated = true;
+    connectedClients.add(ws);
+
+    console.log(`Client WebSocket authentifié (temp: ${tempDeviceId})`);
 
     const tableManager = getTableManager();
     const platformManager = getPlatformManager();
@@ -130,6 +149,7 @@ export async function registerRoutes(
         tempDeviceId,
         autoPlayEnabled,
         connectedDevices: getConnectedDevicesInfo(),
+        authenticated: true,
       }
     }));
 
@@ -146,8 +166,22 @@ export async function registerRoutes(
     }));
 
     ws.on("message", async (data) => {
+      // Vérifier l'authentification avant traitement
+      if (!isAuthenticated) {
+        ws.send(JSON.stringify({ 
+          type: "error", 
+          payload: { message: "Not authenticated" } 
+        }));
+        return;
+      }
+
       try {
         const message = JSON.parse(data.toString()) as WebSocketMessage;
+        
+        // Sanitiser les logs
+        const { sanitizeObject } = await import("./bot/log-sanitizer");
+        console.log("[WebSocket] Message reçu:", sanitizeObject(message));
+        
         const result = await handleWebSocketMessage(ws, message, currentDeviceId);
         if (result?.newDeviceId) {
           currentDeviceId = result.newDeviceId;

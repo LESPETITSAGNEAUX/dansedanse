@@ -13,12 +13,12 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
       ...options?.headers,
     },
   });
-  
+
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: "Erreur réseau" }));
     throw new Error(error.error || `Erreur HTTP: ${response.status}`);
   }
-  
+
   return response.json();
 }
 
@@ -68,54 +68,54 @@ export const api = {
     async start(): Promise<{ success: boolean; session: BotSession }> {
       return fetchJson(`${API_BASE}/session/start`, { method: "POST" });
     },
-    
+
     async stop(): Promise<{ success: boolean; stats: TableStats }> {
       return fetchJson(`${API_BASE}/session/stop`, { method: "POST" });
     },
-    
+
     async getCurrent(): Promise<{ session: BotSession | null; stats: TableStats; tables: TableState[] }> {
       return fetchJson(`${API_BASE}/session/current`);
     },
   },
-  
+
   tables: {
     async getAll(): Promise<{ tables: TableState[] }> {
       return fetchJson(`${API_BASE}/tables`);
     },
-    
+
     async add(config: { tableIdentifier: string; tableName: string; stakes: string }): Promise<{ success: boolean; table: TableState }> {
       return fetchJson(`${API_BASE}/tables`, {
         method: "POST",
         body: JSON.stringify(config),
       });
     },
-    
+
     async remove(tableId: string): Promise<{ success: boolean }> {
       return fetchJson(`${API_BASE}/tables/${tableId}`, { method: "DELETE" });
     },
-    
+
     async start(tableId: string): Promise<{ success: boolean; state: TableState }> {
       return fetchJson(`${API_BASE}/tables/${tableId}/start`, { method: "POST" });
     },
-    
+
     async pause(tableId: string): Promise<{ success: boolean; state: TableState }> {
       return fetchJson(`${API_BASE}/tables/${tableId}/pause`, { method: "POST" });
     },
-    
+
     async startAll(): Promise<{ success: boolean; stats: TableStats }> {
       return fetchJson(`${API_BASE}/tables/start-all`, { method: "POST" });
     },
-    
+
     async stopAll(): Promise<{ success: boolean; stats: TableStats }> {
       return fetchJson(`${API_BASE}/tables/stop-all`, { method: "POST" });
     },
   },
-  
+
   humanizer: {
     async get(): Promise<{ config: HumanizerConfig; currentSettings: HumanizerSettings }> {
       return fetchJson(`${API_BASE}/humanizer`);
     },
-    
+
     async update(updates: Partial<HumanizerConfig>): Promise<{ success: boolean; config: HumanizerConfig }> {
       return fetchJson(`${API_BASE}/humanizer`, {
         method: "PATCH",
@@ -123,12 +123,12 @@ export const api = {
       });
     },
   },
-  
+
   gtoConfig: {
     async get(): Promise<{ config: GtoConfig; connected: boolean; usingSimulation: boolean }> {
       return fetchJson(`${API_BASE}/gto-config`);
     },
-    
+
     async update(updates: Partial<GtoConfig>): Promise<{ success: boolean; config: GtoConfig }> {
       return fetchJson(`${API_BASE}/gto-config`, {
         method: "PATCH",
@@ -136,12 +136,12 @@ export const api = {
       });
     },
   },
-  
+
   platform: {
     async get(): Promise<{ config: PlatformConfig | null }> {
       return fetchJson(`${API_BASE}/platform-config`);
     },
-    
+
     async update(updates: Partial<PlatformConfig>): Promise<{ success: boolean; config: PlatformConfig }> {
       return fetchJson(`${API_BASE}/platform-config`, {
         method: "PATCH",
@@ -149,13 +149,13 @@ export const api = {
       });
     },
   },
-  
+
   logs: {
     async getRecent(limit: number = 50): Promise<{ logs: ActionLog[] }> {
       return fetchJson(`${API_BASE}/logs?limit=${limit}`);
     },
   },
-  
+
   stats: {
     async get(): Promise<{
       session: BotSession | null;
@@ -167,13 +167,13 @@ export const api = {
       return fetchJson(`${API_BASE}/stats`);
     },
   },
-  
+
   handHistories: {
     async getRecent(limit: number = 20): Promise<{ histories: HandHistory[] }> {
       return fetchJson(`${API_BASE}/hand-histories?limit=${limit}`);
     },
   },
-  
+
   simulate: {
     async hand(params: {
       heroCards?: string[];
@@ -208,12 +208,12 @@ export function createWebSocketConnection(
 ): WebSocket {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
-  
+
   ws.onopen = () => {
     console.log("WebSocket connecté");
     onOpen?.();
   };
-  
+
   ws.onmessage = (event) => {
     try {
       const message = JSON.parse(event.data) as WebSocketMessage;
@@ -222,17 +222,17 @@ export function createWebSocketConnection(
       console.error("Erreur parsing WebSocket:", error);
     }
   };
-  
+
   ws.onclose = () => {
     console.log("WebSocket déconnecté");
     onClose?.();
   };
-  
+
   ws.onerror = (error) => {
     console.error("Erreur WebSocket:", error);
     onError?.(error);
   };
-  
+
   return ws;
 }
 
@@ -274,4 +274,3 @@ export async function resetPlayerProfile(): Promise<{ state: PlayerProfileState;
     method: "POST",
   });
 }
-
