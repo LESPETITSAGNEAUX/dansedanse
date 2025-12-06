@@ -11,15 +11,8 @@ import {
   users, botSessions, pokerTables, handHistories,
   humanizerConfig, gtoConfig, platformConfig, actionLogs, botStats, playerProfileState
 } from "@shared/schema";
-import { drizzle } from "drizzle-orm/neon-serverless";
-import { Pool, neonConfig } from "@neondatabase/serverless";
+import { db } from "./db";
 import { eq, desc } from "drizzle-orm";
-import ws from "ws";
-
-neonConfig.webSocketConstructor = ws;
-
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const db = drizzle(pool);
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;

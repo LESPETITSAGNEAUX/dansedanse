@@ -49,7 +49,7 @@ export class GtoCache {
     return `${street}|${cards}|${board}|${position}|${potBucket}|${stackBucket}|${betBucket}|${context.numPlayers}|${context.isInPosition}`;
   }
 
-  get(context: HandContext): GtoRecommendation | null {
+  async get(context: HandContext): Promise<GtoRecommendation | null> {
     const key = this.generateKey(context);
     const entry = this.cache.get(key);
 
@@ -84,7 +84,7 @@ export class GtoCache {
     return entry.recommendation;
   }
 
-  set(context: HandContext, recommendation: GtoRecommendation): void {
+  async set(context: HandContext, recommendation: GtoRecommendation): Promise<void> {
     const key = this.generateKey(context);
 
     // If cache is full, remove least recently used entries
