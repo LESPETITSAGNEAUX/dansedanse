@@ -1,16 +1,22 @@
 
 import { getEventBus } from "./event-bus";
 import { getPlatformManager } from "./platform-manager";
+import { getWorkerManager } from "./workers/worker-manager";
 
 export class VisionWorker {
   private isRunning = false;
   private scanIntervalMs = 200;
+  private taskCounter = 0;
 
   async start(): Promise<void> {
     if (this.isRunning) return;
     
     this.isRunning = true;
-    console.log("[VisionWorker] Started");
+    console.log("[VisionWorker] Started with worker threads");
+    
+    // Initialize worker manager
+    const workerManager = getWorkerManager();
+    await workerManager.initialize();
     
     while (this.isRunning) {
       try {
@@ -27,11 +33,12 @@ export class VisionWorker {
     const platformManager = getPlatformManager();
     const managedTables = platformManager.getManagedTables();
     const eventBus = getEventBus();
+    const workerManager = getWorkerManager();
     
-    for (const table of managedTables) {
+    // Process tables in parallel using workers
+    const scanPromises = managedTables.map(async (table) => {
       try {
-        // Simuler la détection d'état (à remplacer par vraie OCR)
-        const detectedState = await this.detectTableState(table.windowHandle);
+        const detectedState = await this.detectTableState(table.windowHandle, workerManager);
         
         if (detectedState) {
           await eventBus.publish("vision.state_detected", {
@@ -46,12 +53,15 @@ export class VisionWorker {
       } catch (error) {
         console.error(`[VisionWorker] Error scanning table ${table.windowHandle}:`, error);
       }
-    }
+    });
+    
+    await Promise.all(scanPromises);
   }
 
-  private async detectTableState(windowHandle: number): Promise<any | null> {
-    // Cette méthode sera implémentée avec votre vraie logique OCR
+  private async detectTableState(windowHandle: number, workerManager: any): Promise<any | null> {
+    // Cette méthode utilisera le worker pool pour le traitement vision
     // Pour l'instant, retourne null
+    // TODO: Implémenter avec workerManager.processVisionTask()
     return null;
   }
 

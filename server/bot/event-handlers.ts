@@ -41,15 +41,20 @@ export async function registerEventHandlers(bus: EventBus): Promise<void> {
   // GTO Events
   bus.on("gto.request", async (event: BusEvent) => {
     const { situation } = event.payload;
-    const gtoAdapter = getGtoAdapter();
+    const workerManager = await import("./workers/worker-manager").then(m => m.getWorkerManager());
     
     try {
-      const recommendation = await gtoAdapter.getRecommendation(situation);
+      // Use worker pool for GTO calculations
+      const taskId = `gto_${Date.now()}_${Math.random()}`;
+      const result = await workerManager.processGtoTask({
+        id: taskId,
+        data: { id: taskId, context: situation }
+      });
       
       // Publier la réponse GTO
       await bus.publish("gto.response", {
         tableId: event.metadata?.tableId,
-        recommendation,
+        recommendation: result.data.recommendation,
         situation,
       }, {
         ...event.metadata,
@@ -62,22 +67,30 @@ export async function registerEventHandlers(bus: EventBus): Promise<void> {
 
   bus.on("gto.response", async (event: BusEvent) => {
     const { tableId, recommendation } = event.payload;
-    const humanizer = getHumanizer();
+    const workerManager = await import("./workers/worker-manager").then(m => m.getWorkerManager());
     
-    // Humaniser l'action
-    const humanizedAction = humanizer.humanizeAction(
-      recommendation.bestAction,
-      recommendation.actionFrequencies[recommendation.bestAction] || 0.5,
-      recommendation.confidence < 0.7
-    );
-    
-    // Mettre en file d'attente l'action
-    await bus.publish("action.queued", {
-      tableId,
-      action: humanizedAction.action,
-      amount: humanizedAction.amount,
-      delay: humanizedAction.delay,
-    }, event.metadata);
+    try {
+      // Use worker pool for humanization
+      const taskId = `humanizer_${Date.now()}_${Math.random()}`;
+      const result = await workerManager.processHumanizerTask({
+        id: taskId,
+        data: {
+          id: taskId,
+          action: recommendation.bestAction,
+          handStrength: recommendation.actionFrequencies?.[recommendation.bestAction] || 0.5,
+          isComplexDecision: recommendation.confidence < 0.7,
+        }
+      });
+      
+      const humanizedAction = result.data.humanizedAction;
+      
+      // Mettre en file d'attente l'action
+      await bus.publish("action.queued", {
+        tableId,
+        action: humanizedAction.action,
+        amount: humanizedAction.amount,
+        delay: humanizedAction.delay,
+      }, event.metadatata);
   });
 
   // Action Events

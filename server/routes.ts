@@ -547,6 +547,24 @@ export async function registerRoutes(
           lastConnectionAt: new Date(),
         });
 
+
+
+  app.get("/api/workers/stats", async (req, res) => {
+    try {
+      const { getWorkerManager } = await import("./bot/workers/worker-manager");
+      const workerManager = getWorkerManager();
+      const stats = workerManager.getStats();
+      
+      res.json({ 
+        success: true,
+        workers: stats,
+        timestamp: Date.now(),
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
         broadcastToClients({
           type: "platform_connected",
           payload: { platformName, status: platformManager.getStatus() }
