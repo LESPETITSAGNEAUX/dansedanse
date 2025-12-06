@@ -2,6 +2,11 @@ appId: com.gtopokerbot.app
 productName: GTO Poker Bot
 copyright: Copyright © 2024
 
+extraMetadata:
+  main: electron/main.cjs
+  description: GTO Poker Bot - Advanced poker assistant
+  author: GTO Poker Bot
+
 directories:
   output: dist-electron
   buildResources: electron/assets
