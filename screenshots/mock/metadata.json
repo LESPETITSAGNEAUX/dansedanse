@@ -1,0 +1,49 @@
+
+{
+  "screenshots": [
+    {
+      "filename": "table_001.png",
+      "resolution": "1920x1080",
+      "tableType": "cash",
+      "maxPlayers": 6,
+      "street": "flop",
+      "heroCards": ["As", "Kh"],
+      "communityCards": ["Qd", "Jc", "Tc"],
+      "pot": 150.50,
+      "heroStack": 1250.00,
+      "heroPosition": 2,
+      "availableActions": ["fold", "call", "raise"],
+      "callAmount": 50.00
+    },
+    {
+      "filename": "table_002.png",
+      "resolution": "1920x1080",
+      "tableType": "cash",
+      "maxPlayers": 6,
+      "street": "preflop",
+      "heroCards": ["Ah", "Ad"],
+      "communityCards": [],
+      "pot": 3.00,
+      "heroStack": 500.00,
+      "heroPosition": 0,
+      "availableActions": ["fold", "call", "raise"],
+      "callAmount": 2.00
+    },
+    {
+      "filename": "table_003.png",
+      "resolution": "1920x1080",
+      "tableType": "cash",
+      "maxPlayers": 9,
+      "street": "turn",
+      "heroCards": ["Kc", "Kd"],
+      "communityCards": ["9h", "7s", "2c", "Ac"],
+      "pot": 450.00,
+      "heroStack": 850.00,
+      "heroPosition": 4,
+      "availableActions": ["fold", "call", "raise"],
+      "callAmount": 100.00
+    }
+  ],
+  "version": "1.0.0",
+  "generatedAt": "2024-01-15T10:00:00Z"
+}
