@@ -1001,6 +1001,61 @@ export class AdvancedGtoAdapter implements GtoAdapter {
       wasThreeBet: boolean; 
       wasCbet: boolean; 
       position: string;
+
+
+  private constructVillainRange(context: HandContext, profile: PlayerProfile): RangeDefinition | null {
+    // Construire une range réaliste basée sur le profil et l'action
+    if (context.street === "preflop") {
+      // Si villain a 3-bet, utiliser sa stat de 3-bet
+      if (context.facingBet > 0) {
+        const threeBetFreq = profile.threeBetPercentage / 100;
+        const range = PREFLOP_RANGES.three_bet_value;
+        
+        // Ajuster les fréquences selon le profil
+        const adjustedHands = new Map<string, number>();
+        for (const [hand, freq] of range.hands) {
+          adjustedHands.set(hand, freq * (0.5 + threeBetFreq));
+        }
+        
+        return {
+          hands: adjustedHands,
+          description: `Villain 3-bet range (${profile.threeBetPercentage}%)`,
+        };
+      }
+    }
+    
+    // Postflop: construire range basée sur continuation
+    if (context.street !== "preflop" && context.facingBet > 0) {
+      // Si c'est un c-bet, utiliser sa stat de c-bet
+      const isCbet = context.street === "flop";
+      if (isCbet) {
+        const cbetFreq = profile.cbet / 100;
+        
+        // Range de c-bet selon agressivité
+        const tightRange = PREFLOP_RANGES.utg_rfi;
+        const looseRange = PREFLOP_RANGES.btn_rfi;
+        
+        // Interpoler entre tight et loose selon VPIP
+        const vpipFactor = Math.min(1, profile.vpip / 30);
+        const adjustedHands = new Map<string, number>();
+        
+        for (const hand of tightRange.hands.keys()) {
+          const tightFreq = tightRange.hands.get(hand) || 0;
+          const looseFreq = looseRange.hands.get(hand) || tightFreq;
+          const blendedFreq = tightFreq * (1 - vpipFactor) + looseFreq * vpipFactor;
+          adjustedHands.set(hand, blendedFreq * cbetFreq);
+        }
+        
+        return {
+          hands: adjustedHands,
+          description: `Villain c-bet range (${profile.cbet}%)`,
+        };
+      }
+    }
+    
+    return null;
+  }
+
       betSize?: number;
       potSize?: number;
     }
@@ -1176,15 +1231,28 @@ export class AdvancedGtoAdapter implements GtoAdapter {
       }
     );
 
-    // Ajuster précision selon street (river = moins de runouts possibles)
-    const simulations = context.street === "river" ? 1000 : 
-                       context.street === "turn" ? 2000 : 3000;
+    // Monte Carlo adaptatif selon street et importance de la décision
+    const isBigDecision = context.facingBet > context.potSize * 0.5 || context.heroStack < context.potSize * 3;
+    const baseSimulations = isBigDecision ? 5000 : 3000;
+    const simulations = context.street === "river" ? Math.floor(baseSimulations * 0.4) : 
+                       context.street === "turn" ? Math.floor(baseSimulations * 0.7) : baseSimulations;
     
     const tempCalculator = new MonteCarloEquityCalculator(simulations);
-    const equity = tempCalculator.calculateEquityVsRandomHand(
-      context.heroCards,
-      context.communityCards
-    );
+    
+    // Construire une range réaliste du villain selon profil
+    const villainRange = this.constructVillainRange(context, villainProfile);
+    
+    // Calculer équité vs range (plus précis que vs random)
+    const equity = villainRange 
+      ? tempCalculator.calculateEquityVsRange(
+          context.heroCards,
+          villainRange,
+          context.communityCards
+        )
+      : tempCalculator.calculateEquityVsRandomHand(
+          context.heroCards,
+          context.communityCards
+        );
 
     const potOdds = context.facingBet > 0 
       ? context.facingBet / (context.potSize + context.facingBet) 

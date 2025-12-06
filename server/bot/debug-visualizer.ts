@@ -324,36 +324,97 @@ export class DebugVisualizer {
   generateHtmlOverlay(frame: DebugFrame, imageWidth: number, imageHeight: number): string {
     let svg = `<svg viewBox="0 0 ${imageWidth} ${imageHeight}" xmlns="http://www.w3.org/2000/svg">`;
 
+    // Régions de détection (hero cards, community cards, pot, buttons)
     for (const region of frame.regions) {
       const { x, y, width, height } = region.region;
       svg += `
         <rect x="${x}" y="${y}" width="${width}" height="${height}" 
-              fill="none" stroke="${region.color}" stroke-width="2" stroke-dasharray="5,5"/>
-        <text x="${x}" y="${y - 5}" fill="${region.color}" font-size="12">${region.name}</text>
-      `;
-    }
-
-    for (const detection of frame.detections) {
-      const { x, y, width, height } = detection.region;
-      const color = detection.confidence > 0.7 ? "#00FF00" : 
-                    detection.confidence > 0.4 ? "#FFFF00" : "#FF0000";
-      svg += `
-        <rect x="${x}" y="${y}" width="${width}" height="${height}" 
-              fill="none" stroke="${color}" stroke-width="3"/>
-        <text x="${x}" y="${y + height + 15}" fill="${color}" font-size="14" font-weight="bold">
-          ${detection.value} (${(detection.confidence * 100).toFixed(0)}%)
+              fill="none" stroke="${region.color}" stroke-width="2" stroke-dasharray="5,5" opacity="0.8"/>
+        <rect x="${x}" y="${y - 20}" width="${region.name.length * 8}" height="18" 
+              fill="${region.color}" opacity="0.8"/>
+        <text x="${x + 3}" y="${y - 7}" fill="black" font-size="12" font-weight="bold">
+          ${region.name}${region.label ? ': ' + region.label : ''}
         </text>
       `;
     }
 
+    // Détections (cartes, boutons, texte)
+    for (const detection of frame.detections) {
+      const { x, y, width, height } = detection.region;
+      const color = detection.confidence > 0.7 ? "#00FF00" : 
+                    detection.confidence > 0.4 ? "#FFFF00" : "#FF0000";
+      
+      // Box autour de la détection
+      svg += `
+        <rect x="${x}" y="${y}" width="${width}" height="${height}" 
+              fill="none" stroke="${color}" stroke-width="3" opacity="0.9"/>
+      `;
+      
+      // Label avec type et valeur
+      const labelY = detection.type === "card" ? y - 5 : y + height + 15;
+      svg += `
+        <rect x="${x}" y="${labelY - 14}" width="${Math.max(width, detection.value.length * 9)}" height="16" 
+              fill="${color}" opacity="0.9"/>
+        <text x="${x + 3}" y="${labelY - 2}" fill="black" font-size="13" font-weight="bold">
+          ${detection.type.toUpperCase()}: ${detection.value} (${(detection.confidence * 100).toFixed(0)}%)
+        </text>
+      `;
+    }
+
+    // Analyse GTO (panneau d'info en haut à gauche)
     if (frame.gtoAnalysis) {
       const gto = frame.gtoAnalysis;
       svg += `
-        <rect x="10" y="10" width="200" height="80" fill="rgba(0,0,0,0.7)" rx="5"/>
-        <text x="20" y="30" fill="white" font-size="12">Equity: ${(gto.equity * 100).toFixed(1)}%</text>
-        <text x="20" y="50" fill="white" font-size="12">Pot Odds: ${(gto.potOdds * 100).toFixed(1)}%</text>
-        <text x="20" y="70" fill="${gto.confidence > 0.7 ? '#00FF00' : '#FFFF00'}" font-size="14" font-weight="bold">
-          ${gto.recommendedAction} (${(gto.confidence * 100).toFixed(0)}%)
+        <rect x="10" y="10" width="250" height="120" fill="rgba(0,0,0,0.85)" rx="8" stroke="#00FFFF" stroke-width="2"/>
+        <text x="20" y="30" fill="#00FFFF" font-size="14" font-weight="bold">GTO ANALYSIS</text>
+        <line x1="20" y1="35" x2="250" y2="35" stroke="#00FFFF" stroke-width="1"/>
+        
+        <text x="20" y="55" fill="white" font-size="12">Equity: ${(gto.equity * 100).toFixed(1)}%</text>
+        <rect x="100" y="45" width="150" height="12" fill="#333" rx="2"/>
+        <rect x="100" y="45" width="${gto.equity * 150}" height="12" fill="#00FF00" rx="2"/>
+        
+        <text x="20" y="75" fill="white" font-size="12">Pot Odds: ${(gto.potOdds * 100).toFixed(1)}%</text>
+        <rect x="100" y="65" width="150" height="12" fill="#333" rx="2"/>
+        <rect x="100" y="65" width="${gto.potOdds * 150}" height="12" fill="#FFAA00" rx="2"/>
+        
+        <text x="20" y="95" fill="${gto.confidence > 0.7 ? '#00FF00' : '#FFFF00'}" font-size="15" font-weight="bold">
+          → ${gto.recommendedAction}
+        </text>
+        <text x="20" y="110" fill="#AAA" font-size="11">
+          Confidence: ${(gto.confidence * 100).toFixed(0)}%
+        </text>
+      `;
+      
+      // Villain profil si disponible
+      if (gto.villainProfile) {
+        svg += `
+          <rect x="270" y="10" width="200" height="90" fill="rgba(0,0,0,0.85)" rx="8" stroke="#FF00FF" stroke-width="2"/>
+          <text x="280" y="30" fill="#FF00FF" font-size="14" font-weight="bold">VILLAIN PROFILE</text>
+          <line x1="280" y1="35" x2="460" y2="35" stroke="#FF00FF" stroke-width="1"/>
+          <text x="280" y="55" fill="white" font-size="11">Style: ${gto.villainProfile.style}</text>
+          <text x="280" y="70" fill="white" font-size="11">VPIP: ${gto.villainProfile.vpip}% | PFR: ${gto.villainProfile.pfr}%</text>
+          ${gto.exploitSuggestion ? `
+          <text x="280" y="90" fill="#FFFF00" font-size="11" font-weight="bold">
+            💡 ${gto.exploitSuggestion}
+          </text>` : ''}
+        `;
+      }
+    }
+
+    // Stats de processing (bas de l'écran)
+    if (frame.processingSteps.length > 0) {
+      let totalTime = 0;
+      for (const step of frame.processingSteps) {
+        totalTime += step.duration;
+      }
+      
+      svg += `
+        <rect x="10" y="${imageHeight - 50}" width="300" height="40" fill="rgba(0,0,0,0.85)" rx="5"/>
+        <text x="20" y="${imageHeight - 32}" fill="#0099FF" font-size="12" font-weight="bold">
+          Processing: ${totalTime.toFixed(0)}ms
+        </text>
+        <text x="20" y="${imageHeight - 18}" fill="#AAA" font-size="10">
+          ${frame.processingSteps.length} steps | ${frame.detections.length} detections
         </text>
       `;
     }

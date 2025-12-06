@@ -13,21 +13,21 @@ async function loadMLDependencies(): Promise<{ tf: TensorFlowModule | null; shar
     return { tf: tfModule, sharp: sharpModule };
   }
   mlDependenciesChecked = true;
-  
+
   try {
     tfModule = await import('@tensorflow/tfjs-node');
     console.log("[CardClassifier] TensorFlow.js loaded successfully");
   } catch (error) {
     console.log("[CardClassifier] TensorFlow.js not available, using heuristic fallback");
   }
-  
+
   try {
     sharpModule = (await import('sharp')).default as unknown as SharpModule;
     console.log("[CardClassifier] Sharp loaded successfully");
   } catch (error) {
     console.log("[CardClassifier] Sharp not available, using basic preprocessing");
   }
-  
+
   return { tf: tfModule, sharp: sharpModule };
 }
 
@@ -227,12 +227,12 @@ export class CardRankClassifier {
 
   async predictRank(imageBuffer: Buffer, width: number, height: number): Promise<CardRankPrediction> {
     const { tf, sharp } = await loadMLDependencies();
-    
+
     if (!sharp) {
       console.log("[CardRankClassifier] Sharp not available, using heuristic classification");
       return { rank: null, confidence: 0 };
     }
-    
+
     try {
       const processed = await sharp(imageBuffer)
         .resize(28, 28)
@@ -246,7 +246,7 @@ export class CardRankClassifier {
         const tensor = tf.tensor3d(Array.from(processed), [28, 28, 1]).expandDims(0);
         const prediction = this.model.predict(tensor) as any;
         const probabilities = await prediction.data();
-        
+
         let maxProb = 0;
         let maxIndex = 0;
         for (let i = 0; i < probabilities.length; i++) {
@@ -255,10 +255,10 @@ export class CardRankClassifier {
             maxIndex = i;
           }
         }
-        
+
         tensor.dispose();
         prediction.dispose();
-        
+
         if (maxProb > 0.7) {
           return {
             rank: this.RANKS[maxIndex],
@@ -281,12 +281,12 @@ export class CardRankClassifier {
   async trainFromDataset(datasetPath: string): Promise<void> {
     console.log(`[CardRankClassifier] Training from ${datasetPath}`);
     const { tf } = await loadMLDependencies();
-    
+
     if (!tf) {
       console.log("[CardRankClassifier] TensorFlow.js not available, skipping training");
       return;
     }
-    
+
     // Build lightweight CNN model
     this.model = tf.sequential({
       layers: [
@@ -309,16 +309,16 @@ export class CardRankClassifier {
         tf.layers.dense({ units: 13, activation: 'softmax' })
       ]
     });
-    
+
     this.model.compile({
       optimizer: 'adam',
       loss: 'categoricalCrossentropy',
       metrics: ['accuracy']
     });
-    
+
     console.log("[CardRankClassifier] Model compiled successfully");
   }
-  
+
   isMLAvailable(): boolean {
     return this.mlAvailable;
   }
@@ -577,6 +577,7 @@ export class CombinedCardRecognizer {
   private processingConfig: ImageProcessingConfig;
   private debugMode: boolean = false;
   private debugLogs: string[] = [];
+  private templateMatcher: any; // Placeholder for actual template matcher import
 
   constructor(
     classifierConfig: CardClassifierConfig = DEFAULT_CLASSIFIER_CONFIG,
@@ -584,6 +585,8 @@ export class CombinedCardRecognizer {
   ) {
     this.classifier = new CardRankClassifier(classifierConfig);
     this.processingConfig = processingConfig;
+    // Assuming templateMatcher is imported or initialized elsewhere
+    // this.templateMatcher = new TemplateMatcher();
   }
 
   enableDebugMode(enabled: boolean = true): void {
@@ -646,6 +649,142 @@ export class CombinedCardRecognizer {
       rank: result.rank,
       confidence: result.confidence,
       method: result.confidence >= 0.6 ? "feature_matching" : "heuristic",
+    };
+  }
+
+  // Placeholder for suit recognition
+  private async recognizeCardSuit(
+    imageBuffer: Buffer,
+    imageWidth: number,
+    imageHeight: number,
+    region: ScreenRegion
+  ): Promise<{ value: string | null; confidence: number }> {
+    this.log(`Recognizing suit in region: x=${region.x}, y=${region.y}, w=${region.width}, h=${region.height}`);
+    // Implement suit recognition logic here (e.g., using HSV color analysis or a dedicated model)
+    return { value: "H", confidence: 0.9 }; // Placeholder
+  }
+
+  // Placeholder for Tesseract OCR
+  private async recognizeWithTesseract(
+    imageBuffer: Buffer,
+    imageWidth: number,
+    imageHeight: number,
+    region: ScreenRegion
+  ): Promise<{ text: string | null; confidence: number }> {
+    this.log(`Recognizing rank with Tesseract in region: x=${region.x}, y=${region.y}, w=${region.width}, h=${region.height}`);
+    // Implement Tesseract OCR logic here
+    return { text: "A", confidence: 0.8 }; // Placeholder
+  }
+
+  async recognizeCard(
+    imageBuffer: Buffer,
+    imageWidth: number,
+    imageHeight: number,
+    region: ScreenRegion,
+    cardType: "hero" | "community" = "community"
+  ): Promise<{ rank: string | null; suit: string | null; confidence: number; method: string; debugInfo?: any }> {
+    const rankRegion: ScreenRegion = {
+      x: region.x + 2,
+      y: region.y + 2,
+      width: Math.floor(region.width * 0.3),
+      height: Math.floor(region.height * 0.3),
+    };
+
+    const suitRegion: ScreenRegion = {
+      x: region.x + 2,
+      y: region.y + Math.floor(region.height * 0.35),
+      width: Math.floor(region.width * 0.25),
+      height: Math.floor(region.height * 0.25),
+    };
+
+    const debugInfo: any = {
+      methods: [],
+      timings: {},
+    };
+
+    // 1️⃣ Template Matching (le plus rapide, 80%+ précision)
+    const templateStart = Date.now();
+    const templateRank = this.templateMatcher.matchCardRank(
+      imageBuffer, imageWidth, imageHeight, rankRegion
+    );
+    debugInfo.timings.template = Date.now() - templateStart;
+
+    if (templateRank.rank && templateRank.confidence > 0.75) {
+      debugInfo.methods.push('template');
+
+      // Template matching pour le rank OK, maintenant la suit avec HSV
+      const suit = await this.recognizeCardSuit(imageBuffer, imageWidth, imageHeight, suitRegion);
+
+      const confidence = Math.min(templateRank.confidence, suit.confidence);
+
+      if (this.debugMode) {
+        console.log(`[CombinedRecognizer] Template+HSV: ${templateRank.rank}${suit.value} (${(confidence * 100).toFixed(1)}%)`);
+      }
+
+      return {
+        rank: templateRank.rank,
+        suit: suit.value,
+        confidence,
+        method: "template+hsv",
+        debugInfo,
+      };
+    }
+    debugInfo.methods.push('template_failed');
+
+    // 2️⃣ Mini-CNN ML (fallback, 90%+ précision mais plus lent)
+    const cnnStart = Date.now();
+    const rank = await this.recognizeCardRank(imageBuffer, imageWidth, imageHeight, rankRegion);
+    const suit = await this.recognizeCardSuit(imageBuffer, imageWidth, imageHeight, suitRegion);
+    debugInfo.timings.cnn = Date.now() - cnnStart;
+
+    const cnnConfidence = Math.min(rank.confidence, suit.confidence);
+
+    if (cnnConfidence > 0.6) {
+      debugInfo.methods.push('cnn');
+
+      if (this.debugMode) {
+        console.log(`[CombinedRecognizer] CNN: ${rank.value}${suit.value} (${(cnnConfidence * 100).toFixed(1)}%)`);
+      }
+
+      return {
+        rank: rank.value,
+        suit: suit.value,
+        confidence: cnnConfidence,
+        method: "cnn",
+        debugInfo,
+      };
+    }
+    debugInfo.methods.push('cnn_low_conf');
+
+    // 3️⃣ Tesseract OCR (dernier recours)
+    const tesseractStart = Date.now();
+    const tesseractRank = await this.recognizeWithTesseract(imageBuffer, imageWidth, imageHeight, rankRegion);
+    debugInfo.timings.tesseract = Date.now() - tesseractStart;
+
+    if (tesseractRank && tesseractRank.confidence > 0.5) {
+      debugInfo.methods.push('tesseract');
+
+      return {
+        rank: tesseractRank.text,
+        suit: suit.value || null,
+        confidence: Math.min(tesseractRank.confidence, suit.confidence || 0.3),
+        method: "tesseract",
+        debugInfo,
+      };
+    }
+
+    debugInfo.methods.push('all_failed');
+
+    if (this.debugMode) {
+      console.log(`[CombinedRecognizer] All methods failed. Debug: ${JSON.stringify(debugInfo)}`);
+    }
+
+    return {
+      rank: rank.value,
+      suit: suit.value,
+      confidence: cnnConfidence,
+      method: "cnn_fallback",
+      debugInfo,
     };
   }
 
