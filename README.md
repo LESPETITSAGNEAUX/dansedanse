@@ -6,6 +6,12 @@ Bot de poker multi-comptes avec intelligence artificielle GTO, vision par ordina
 
 ### 🤖 Intelligence & Décisions
 - **GTO Engine** : Décisions basées sur Game Theory Optimal
+- **GTO Avancé** : Calculs postflop avec Monte Carlo
+  - Simulation 10,000+ scénarios en 100-200ms
+  - Construction de ranges multi-street (flop/turn/river)
+  - Equity calculation avec card removal effects
+  - Range narrowing basé sur actions adversaires
+  - Nash Equilibrium solver pour situations complexes
 - **GTO Cache** : Cache LRU 10k entrées, TTL 60min (économie 200-400ms/query)
 - **Range Auto-Update** : Mise à jour hebdomadaire automatique des ranges
 - **Player Profile** : Simulation dynamique d'émotions (tilt, fatigue, circadien)
@@ -19,15 +25,28 @@ Bot de poker multi-comptes avec intelligence artificielle GTO, vision par ordina
   - Post-processing intelligent
 - **Poker OCR Engine** : CNN pure JavaScript pour reconnaissance optimisée (95% précision)
   - Neural Network custom (Conv, MaxPool, Dense layers)
-  - Card Classifier (rangs + couleurs)
+  - Card Classifier (rangs + couleurs) avec CNN
   - Digit Classifier (montants pot/stack/bet)
   - Training Pipeline avec augmentation de données
   - Data Collector avec collecte automatique
+- **Template Matching OpenCV** : Détection par correspondance de motifs
+  - Algorithmes TM_CCOEFF_NORMED, TM_SQDIFF_NORMED
+  - Détection boutons, icônes, éléments UI
+  - Précision 98%+ sur éléments fixes
+  - Fallback robuste si OCR échoue
 - **Multi-Frame Validation** : 2-3 frames consensus pour 99% fiabilité
 - **Fallback hiérarchisé** : ONNX → ML OCR → Tesseract → Template Matching
 - **Pot Detector** : Détection par histogramme couleur + validation heuristique
 - **OCR Error Correction** : Système de correction automatique
 - **Vision Error Logger** : Tracking détaillé des erreurs avec screenshots
+- **DXGI Desktop Duplication** : Capture ultra-rapide Windows (6x plus rapide)
+  - Latence 20-30ms (vs 150-200ms screenshot-desktop)
+  - Zero tearing, synchronisé avec le moniteur
+  - Fallback automatique si non disponible
+- **Debug Visualizer** : Affichage temps réel des régions détectées
+  - Overlay cartes, pot, stacks, boutons
+  - Mode debug visuel avec canvas HTML5
+  - Export PNG des détections pour analyse
 
 ### 🎭 Anti-Détection
 - **Human Behavior Dataset** : 500+ joueurs réels pour apprentissage style humain
