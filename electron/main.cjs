@@ -111,39 +111,45 @@ function startServer() {
   // Détecter le chemin Node.js sur Windows
   let nodePath = 'node';
   if (process.platform === 'win32') {
-    // Essayer d'utiliser process.execPath d'abord (chemin vers node.exe utilisé par Electron)
-    const electronNodePath = process.execPath.replace('electron.exe', 'node.exe');
     const fs = require('fs');
     
-    if (fs.existsSync(electronNodePath)) {
-      nodePath = electronNodePath;
-      console.log('[Server] Using Electron node path:', nodePath);
-    } else {
-      // Vérifier si Node.js est dans le PATH
-      const possiblePaths = [
-        path.join(process.env.ProgramFiles || 'C:\\Program Files', 'nodejs', 'node.exe'),
-        path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'nodejs', 'node.exe'),
-        path.join(process.env.LOCALAPPDATA || '', 'Programs', 'nodejs', 'node.exe'),
-        path.join(process.env.APPDATA || '', 'npm', 'node.exe'),
-        'C:\\Program Files\\nodejs\\node.exe',
-        'C:\\Program Files (x86)\\nodejs\\node.exe'
-      ];
+    // 1. Essayer le Node.js embarqué avec Electron
+    if (process.resourcesPath) {
+      const embeddedNodePath = path.join(process.resourcesPath, 'node.exe');
+      if (fs.existsSync(embeddedNodePath)) {
+        nodePath = embeddedNodePath;
+        console.log('[Server] Using embedded Node.js:', nodePath);
+        return;
+      }
+    }
+    
+    // 2. Chercher dans les emplacements standards
+    const possiblePaths = [
+      'C:\\Program Files\\nodejs\\node.exe',
+      'C:\\Program Files (x86)\\nodejs\\node.exe',
+      path.join(process.env.ProgramFiles || 'C:\\Program Files', 'nodejs', 'node.exe'),
+      path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'nodejs', 'node.exe'),
+      path.join(process.env.LOCALAPPDATA || '', 'Programs', 'nodejs', 'node.exe'),
+      path.join(process.env.APPDATA || '', 'npm', 'node.exe')
+    ];
 
-      for (const possiblePath of possiblePaths) {
-        try {
-          if (fs.existsSync(possiblePath)) {
-            nodePath = possiblePath;
-            console.log('[Server] Found Node.js at:', nodePath);
-            break;
-          }
-        } catch (e) {
-          // Continue à chercher
+    for (const possiblePath of possiblePaths) {
+      try {
+        if (fs.existsSync(possiblePath)) {
+          nodePath = possiblePath;
+          console.log('[Server] Found Node.js at:', nodePath);
+          break;
         }
+      } catch (e) {
+        // Continue à chercher
       }
-      
-      if (nodePath === 'node') {
-        console.log('[Server] Using default node from PATH');
-      }
+    }
+    
+    // 3. Fallback : essayer d'utiliser 'node' depuis PATH
+    if (nodePath === 'node') {
+      console.log('[Server] Using Node.js from system PATH');
+      console.warn('[Server] WARNING: Node.js not found in standard locations');
+      console.warn('[Server] The app may fail if Node.js is not in PATH');
     }
   }
   
