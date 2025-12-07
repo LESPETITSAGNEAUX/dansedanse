@@ -13,6 +13,7 @@ param(
     [string]$DbName = "poker_bot",
     [string]$DbUser = "poker_bot",
     [string]$DbPassword = "",
+    [string]$PostgresPassword = "",
     [string]$InstallPath = "$PSScriptRoot\..",
     [switch]$SkipPostgresInstall
 )
@@ -57,20 +58,47 @@ function New-Database {
     
     Write-Info "Création de la base de données '$DbName'..."
     
-    $env:PGPASSWORD = $DbPassword
+    # Demander le mot de passe postgres si pas défini
+    if ([string]::IsNullOrEmpty($env:POSTGRES_PASSWORD)) {
+        Write-Warning "Le mot de passe PostgreSQL est requis pour continuer."
+        Write-Info "Ce mot de passe a été défini lors de l'installation de PostgreSQL."
+        $securePassword = Read-Host "Entrez le mot de passe de l'utilisateur 'postgres'" -AsSecureString
+        $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword)
+        $postgresPassword = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
+        $env:PGPASSWORD = $postgresPassword
+    } else {
+        $env:PGPASSWORD = $env:POSTGRES_PASSWORD
+    }
     
     try {
-        & $PsqlPath -U postgres -c "DROP DATABASE IF EXISTS $DbName;" 2>$null
-        & $PsqlPath -U postgres -c "DROP USER IF EXISTS $DbUser;" 2>$null
+        # Tester la connexion d'abord
+        Write-Info "Test de connexion à PostgreSQL..."
+        & $PsqlPath -U postgres -c "SELECT version();" -h localhost 2>&1 | Out-Null
         
-        & $PsqlPath -U postgres -c "CREATE USER $DbUser WITH PASSWORD '$DbPassword';"
-        & $PsqlPath -U postgres -c "CREATE DATABASE $DbName OWNER $DbUser;"
-        & $PsqlPath -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE $DbName TO $DbUser;"
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "Impossible de se connecter à PostgreSQL. Vérifiez que le service est démarré et que le mot de passe est correct."
+            throw "Connexion PostgreSQL échouée"
+        }
+        
+        Write-Info "Connexion réussie. Création de la base..."
+        
+        & $PsqlPath -U postgres -c "DROP DATABASE IF EXISTS $DbName;" -h localhost 2>$null
+        & $PsqlPath -U postgres -c "DROP USER IF EXISTS $DbUser;" -h localhost 2>$null
+        
+        & $PsqlPath -U postgres -c "CREATE USER $DbUser WITH PASSWORD '$DbPassword';" -h localhost
+        & $PsqlPath -U postgres -c "CREATE DATABASE $DbName OWNER $DbUser;" -h localhost
+        & $PsqlPath -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE $DbName TO $DbUser;" -h localhost
         
         Write-Success "Base de données '$DbName' créée"
     } catch {
         Write-Error "Erreur lors de la création de la base: $_"
+        Write-Warning "Vérifiez que :"
+        Write-Warning "1. PostgreSQL est démarré (Services Windows > postgresql-x64-16)"
+        Write-Warning "2. Le mot de passe 'postgres' est correct"
+        Write-Warning "3. Le port 5432 est accessible"
         throw
+    } finally {
+        $env:PGPASSWORD = $null
     }
 }
 
@@ -334,6 +362,11 @@ if (!$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if ([string]::IsNullOrEmpty($DbPassword)) {
     $DbPassword = -join ((65..90) + (97..122) + (48..57) | Get-Random -Count 16 | ForEach-Object {[char]$_})
     Write-Info "Mot de passe généré automatiquement"
+}
+
+# Stocker le mot de passe postgres si fourni
+if (![string]::IsNullOrEmpty($PostgresPassword)) {
+    $env:POSTGRES_PASSWORD = $PostgresPassword
 }
 
 # 1. Vérifier/Installer PostgreSQL
