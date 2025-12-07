@@ -12,6 +12,15 @@
   CreateDirectory "$INSTDIR\logs"
   CreateDirectory "$INSTDIR\config"
   CreateDirectory "$INSTDIR\replays"
+  
+  ; Copier .env s'il existe à côté du setup.exe
+  IfFileExists "$EXEDIR\.env" 0 +2
+    CopyFiles /SILENT "$EXEDIR\.env" "$INSTDIR\.env"
+  
+  ; Aussi copier vers AppData pour persistance
+  CreateDirectory "$APPDATA\GTO Poker Bot"
+  IfFileExists "$EXEDIR\.env" 0 +2
+    CopyFiles /SILENT "$EXEDIR\.env" "$APPDATA\GTO Poker Bot\.env"
 !macroend
 
 !macro customUnInstall

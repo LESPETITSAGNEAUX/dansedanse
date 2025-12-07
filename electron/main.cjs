@@ -40,29 +40,39 @@ function parseEnvFile(filePath) {
 // Charger .env depuis le bon emplacement
 function loadEnvFile() {
   // Pour les exe portables, PORTABLE_EXECUTABLE_DIR contient le VRAI dossier de l'exe
-  // (l'exe s'extrait dans un dossier temp mais cette variable pointe vers l'original)
   const portableDir = process.env.PORTABLE_EXECUTABLE_DIR;
+  
+  // AppData pour version installée (copié par l'installeur NSIS)
+  const appDataDir = process.env.APPDATA ? path.join(process.env.APPDATA, 'GTO Poker Bot') : null;
   
   const possibleEnvPaths = [];
   
-  // PRIORITÉ 1: Dossier de l'exe portable (là où l'utilisateur a placé l'exe)
+  // PRIORITÉ 1: Dossier de l'exe portable
   if (portableDir) {
     possibleEnvPaths.push(path.join(portableDir, '.env'));
   }
   
-  // PRIORITÉ 2: Répertoire de travail actuel
+  // PRIORITÉ 2: AppData (version installée)
+  if (appDataDir) {
+    possibleEnvPaths.push(path.join(appDataDir, '.env'));
+  }
+  
+  // PRIORITÉ 3: Répertoire de travail actuel
   possibleEnvPaths.push(path.join(process.cwd(), '.env'));
   
-  // Autres emplacements possibles
+  // PRIORITÉ 4: Dossier d'installation (à côté de l'exe)
   if (process.resourcesPath) {
     possibleEnvPaths.push(path.join(path.dirname(process.resourcesPath), '.env'));
   }
   possibleEnvPaths.push(path.join(path.dirname(process.execPath), '.env'));
+  
+  // Fallbacks
   possibleEnvPaths.push(path.join(__dirname, '.env'));
   possibleEnvPaths.push(path.join(__dirname, '..', '.env'));
 
   console.log('[Electron] ====== RECHERCHE .ENV ======');
   console.log('[Electron] PORTABLE_EXECUTABLE_DIR:', portableDir || '(non défini)');
+  console.log('[Electron] APPDATA dir:', appDataDir || '(non défini)');
   console.log('[Electron] process.execPath:', process.execPath);
   console.log('[Electron] process.resourcesPath:', process.resourcesPath);
   console.log('[Electron] process.cwd():', process.cwd());
