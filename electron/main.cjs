@@ -8,41 +8,56 @@ let serverStarted = false;
 
 // Charger .env depuis le bon emplacement
 function loadEnvFile() {
-  // Obtenir le chemin de l'exécutable
-  const exePath = process.execPath;
-  const exeDir = path.dirname(exePath);
+  // Pour Electron packagé, utiliser le dossier de l'app
+  const isPackaged = !process.defaultApp && !process.argv.includes('--dev');
   
-  // Pour les exécutables pkg, resources est souvent dans le même dossier
-  const possibleEnvPaths = [
-    path.join(exeDir, '.env'), // Même dossier que l'exe (priorité absolue)
-    path.join(exeDir, '..', '.env'), // Dossier parent de l'exe
-    path.join(process.cwd(), '.env'), // Dossier courant
-    path.join(__dirname, '.env'), // Dossier du script
-    path.join(__dirname, '..', '.env'), // Dossier parent du script
-  ];
-  
-  // Ajouter app.getPath seulement si app est prêt
-  if (app.isReady()) {
-    possibleEnvPaths.push(path.join(app.getPath('exe'), '..', '.env'));
-    possibleEnvPaths.push(path.join(app.getPath('userData'), '.env'));
+  // process.resourcesPath pointe vers le dossier resources de l'app packagée
+  // Son parent est le dossier d'installation
+  let appDir;
+  if (isPackaged && process.resourcesPath) {
+    appDir = path.dirname(process.resourcesPath);
+  } else {
+    appDir = path.dirname(process.execPath);
   }
+  
+  const possibleEnvPaths = [
+    path.join(appDir, '.env'), // Dossier de l'application (priorité 1)
+    path.join(process.cwd(), '.env'), // Répertoire de travail actuel (priorité 2)
+    path.join(path.dirname(process.execPath), '.env'), // À côté de l'exe
+    path.join(path.dirname(process.execPath), '..', '.env'), // Parent de l'exe
+    path.join(__dirname, '.env'), // Dossier du script
+    path.join(__dirname, '..', '.env'), // Parent du script
+  ];
 
-  console.log('[Electron] Recherche .env dans:');
-  console.log('[Electron] - Exe path:', exePath);
-  console.log('[Electron] - Exe dir:', exeDir);
-  console.log('[Electron] - CWD:', process.cwd());
-  console.log('[Electron] - __dirname:', __dirname);
+  console.log('[Electron] ====== RECHERCHE .ENV ======');
+  console.log('[Electron] isPackaged:', isPackaged);
+  console.log('[Electron] appDir:', appDir);
+  console.log('[Electron] process.execPath:', process.execPath);
+  console.log('[Electron] process.resourcesPath:', process.resourcesPath);
+  console.log('[Electron] process.cwd():', process.cwd());
+  console.log('[Electron] __dirname:', __dirname);
 
   for (const envPath of possibleEnvPaths) {
     console.log(`[Electron] Vérification: ${envPath}`);
-    if (fs.existsSync(envPath)) {
-      console.log(`[Electron] ✅ Fichier .env trouvé: ${envPath}`);
-      require('dotenv').config({ path: envPath });
-      return true;
+    try {
+      if (fs.existsSync(envPath)) {
+        console.log(`[Electron] ✅ Fichier .env trouvé: ${envPath}`);
+        require('dotenv').config({ path: envPath });
+        
+        // Vérifier que DATABASE_URL est bien chargé
+        if (process.env.DATABASE_URL) {
+          console.log('[Electron] ✅ DATABASE_URL configuré');
+          return true;
+        } else {
+          console.log('[Electron] ⚠️ .env trouvé mais DATABASE_URL manquant');
+        }
+      }
+    } catch (err) {
+      console.log(`[Electron] Erreur lecture ${envPath}:`, err.message);
     }
   }
 
-  console.error('[Electron] ❌ Aucun fichier .env trouvé dans:', possibleEnvPaths);
+  console.error('[Electron] ❌ Aucun fichier .env valide trouvé');
   return false;
 }
 
@@ -195,16 +210,28 @@ app.whenReady().then(() => {
   // Vérifier que .env est chargé
   if (!envLoaded) {
     const { dialog } = require('electron');
-    const exeDir = path.dirname(process.execPath);
+    
+    // Déterminer le dossier correct
+    const isPackaged = !process.defaultApp;
+    let appDir;
+    if (isPackaged && process.resourcesPath) {
+      appDir = path.dirname(process.resourcesPath);
+    } else {
+      appDir = path.dirname(process.execPath);
+    }
+    
     dialog.showErrorBox(
-      'Configuration manquante',
-      'Le fichier .env est manquant.\n\n' +
-      'Veuillez:\n' +
-      '1. Exécuter script\\INIT-DATABASE.bat\n' +
-      '2. Copier le fichier .env dans le MÊME DOSSIER que l\'exécutable\n\n' +
-      'Dossier de l\'exécutable: ' + exeDir + '\n' +
-      'Fichier attendu: ' + path.join(exeDir, '.env') + '\n\n' +
-      'Note: Le .env doit être directement à côté du fichier .exe'
+      'Base de données non configurée',
+      'Le fichier .env est manquant ou invalide.\n\n' +
+      'Étapes:\n' +
+      '1. Ouvrir le dossier "script"\n' +
+      '2. Click droit sur INIT-DATABASE.bat\n' +
+      '3. Exécuter en tant qu\'administrateur\n' +
+      '4. Copier le .env généré dans:\n' +
+      '   ' + appDir + '\n\n' +
+      'Ou lancer l\'application depuis le dossier contenant le .env:\n' +
+      '   cd "chemin\\vers\\dossier\\avec\\.env"\n' +
+      '   "' + process.execPath + '"'
     );
     return;
   }
