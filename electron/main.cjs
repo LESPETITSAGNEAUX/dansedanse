@@ -6,6 +6,37 @@ let mainWindow;
 let tray;
 let serverStarted = false;
 
+// Parser .env manuellement (sans dépendance externe)
+function parseEnvFile(filePath) {
+  try {
+    const content = fs.readFileSync(filePath, 'utf8');
+    const lines = content.split('\n');
+    
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      
+      const eqIndex = trimmed.indexOf('=');
+      if (eqIndex === -1) continue;
+      
+      const key = trimmed.substring(0, eqIndex).trim();
+      let value = trimmed.substring(eqIndex + 1).trim();
+      
+      // Enlever les guillemets
+      if ((value.startsWith('"') && value.endsWith('"')) || 
+          (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1);
+      }
+      
+      process.env[key] = value;
+    }
+    return true;
+  } catch (err) {
+    console.log(`[Electron] Erreur parsing ${filePath}:`, err.message);
+    return false;
+  }
+}
+
 // Charger .env depuis le bon emplacement
 function loadEnvFile() {
   // Pour Electron packagé, utiliser le dossier de l'app
@@ -42,7 +73,9 @@ function loadEnvFile() {
     try {
       if (fs.existsSync(envPath)) {
         console.log(`[Electron] ✅ Fichier .env trouvé: ${envPath}`);
-        require('dotenv').config({ path: envPath });
+        
+        // Parser le fichier manuellement (sans dotenv)
+        parseEnvFile(envPath);
         
         // Vérifier que DATABASE_URL est bien chargé
         if (process.env.DATABASE_URL) {
