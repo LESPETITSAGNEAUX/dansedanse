@@ -333,6 +333,18 @@ Généré le : $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
     
     $infoContent | Out-File -FilePath $infoPath -Encoding UTF8 -Force
     Write-Success "Informations sauvegardées dans: $infoPath"
+    
+    # Chercher et copier .env à côté de l'exe si trouvé
+    $exePath = Get-ChildItem -Path $InstallPath -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($exePath) {
+        $exeDir = Split-Path -Parent $exePath.FullName
+        $targetEnvPath = Join-Path $exeDir ".env"
+        
+        if (!(Test-Path $targetEnvPath)) {
+            Copy-Item -Path $envPath -Destination $targetEnvPath -Force
+            Write-Success "Fichier .env copié à côté de l'exécutable: $targetEnvPath"
+        }
+    }
 }
 
 # ============================================

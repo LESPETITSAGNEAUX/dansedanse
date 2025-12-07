@@ -1,11 +1,36 @@
 const { app, BrowserWindow, ipcMain, Tray, Menu, shell } = require('electron');
 const path = require('path');
+const fs = require('fs');
 
 let mainWindow;
 let tray;
 let serverStarted = false;
 
-const isDev = process.env.NODE_ENV === 'development';
+// Charger .env depuis le bon emplacement
+function loadEnvFile() {
+  const possibleEnvPaths = [
+    path.join(process.cwd(), '.env'), // Dossier courant
+    path.join(app.getPath('exe'), '..', '.env'), // À côté de l'exe
+    path.join(app.getPath('userData'), '.env'), // Dans userData
+    path.join(__dirname, '..', '.env'), // Dossier parent
+  ];
+
+  for (const envPath of possibleEnvPaths) {
+    if (fs.existsSync(envPath)) {
+      console.log(`[Electron] Fichier .env trouvé: ${envPath}`);
+      require('dotenv').config({ path: envPath });
+      return true;
+    }
+  }
+
+  console.error('[Electron] Aucun fichier .env trouvé dans:', possibleEnvPaths);
+  return false;
+}
+
+// Charger .env avant tout
+const envLoaded = loadEnvFile();
+
+const isDev = !app.isPackaged;
 const PORT = process.env.PORT || 5000;
 
 function createWindow() {
@@ -97,24 +122,10 @@ function startServer() {
   }
 
   const serverPath = path.join(__dirname, '..', 'dist', 'index.cjs');
-  const envPath = path.join(__dirname, '..', '.env');
+  const envPath = path.join(__dirname, '..', '.env'); // Ce chemin n'est plus utilisé pour la vérification initiale
 
-  // Vérifier si .env existe
-  if (!require('fs').existsSync(envPath)) {
-    const { dialog } = require('electron');
-    dialog.showErrorBox(
-      'Base de données non configurée',
-      'Le fichier .env est manquant.\n\n' +
-      'Veuillez lancer le script "INIT-DATABASE.bat" dans le dossier "script" pour initialiser la base de données PostgreSQL.\n\n' +
-      'Étapes:\n' +
-      '1. Ouvrir le dossier "script"\n' +
-      '2. Clic droit sur "INIT-DATABASE.bat"\n' +
-      '3. Exécuter en tant qu\'administrateur\n' +
-      '4. Relancer l\'application'
-    );
-    app.quit();
-    return;
-  }
+  // Vérifier si .env existe (cette vérification est maintenant gérée par loadEnvFile)
+  // if (!require('fs').existsSync(envPath)) { ... }
 
   process.env.NODE_ENV = 'production';
   process.env.PORT = PORT.toString();
@@ -162,6 +173,21 @@ function startServer() {
 }
 
 app.whenReady().then(() => {
+  // Vérifier que .env est chargé
+  if (!envLoaded) {
+    const { dialog } = require('electron');
+    dialog.showErrorBox(
+      'Configuration manquante',
+      'Le fichier .env est manquant.\n\n' +
+      'Veuillez:\n' +
+      '1. Exécuter script\\INIT-DATABASE.bat\n' +
+      '2. Copier le fichier .env généré à côté de l\'exécutable\n\n' +
+      'Chemin attendu: ' + path.join(app.getPath('exe'), '..', '.env')
+    );
+    // Si .env est manquant, on ne démarre pas le serveur et on ne crée pas les fenêtres
+    return;
+  }
+
   startServer();
 
   setTimeout(() => {

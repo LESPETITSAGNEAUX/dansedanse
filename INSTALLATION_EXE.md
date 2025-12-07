@@ -13,6 +13,14 @@
 4. **Entrer le mot de passe PostgreSQL** quand demandé (défini lors de l'installation de PostgreSQL)
 5. **Attendre** la fin de l'installation (5-10 minutes)
 
+**Ce script fait TOUT automatiquement** :
+- Installe PostgreSQL si nécessaire
+- Crée la base de données
+- Génère le fichier `.env`
+- **Copie automatiquement le `.env` à côté de l'exécutable**
+
+**Vous n'avez besoin de lancer ce script qu'UNE SEULE FOIS.**
+
 Le script va automatiquement :
 - ✅ Installer PostgreSQL 16 (si nécessaire)
 - ✅ Se connecter avec le mot de passe fourni
@@ -22,6 +30,18 @@ Le script va automatiquement :
 - ✅ Sauvegarder les informations de connexion dans `DATABASE_INFO.txt`
 
 **Note**: Si PostgreSQL est déjà installé, le script vous demandera le mot de passe de l'utilisateur `postgres` pour créer la base de données.
+
+**IMPORTANT** : Après l'initialisation, vous devez copier le fichier `.env` à côté de l'exécutable :
+
+1. **Copier le fichier `.env`** généré (dans le dossier script)
+2. **Coller** dans le même dossier que `GTO-Poker-Bot.exe`
+
+Exemple :
+```
+C:\Users\Admin\Downloads\gto-poker-bot-main\
+├── GTO-Poker-Bot.exe
+└── .env  ← DOIT être ici
+```
 
 ### Étape 2 : Lancer l'Application
 
