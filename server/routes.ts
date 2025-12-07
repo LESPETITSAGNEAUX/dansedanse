@@ -231,6 +231,15 @@ export async function registerRoutes(
     broadcastToClients({ type: "table_removed", payload: data });
   });
 
+  // Health check endpoint pour Electron
+  app.get("/api/health", (req, res) => {
+    res.json({ 
+      status: "ok", 
+      timestamp: new Date().toISOString(),
+      version: process.env.npm_package_version || "1.0.0"
+    });
+  });
+
   app.post("/api/session/start", async (req, res) => {
     try {
       const existingSession = await storage.getActiveBotSession();

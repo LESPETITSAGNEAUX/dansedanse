@@ -1,10 +1,49 @@
 const { app, BrowserWindow, ipcMain, Tray, Menu, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const http = require('http');
 
 let mainWindow;
 let tray;
 let serverStarted = false;
+let serverError = null;
+
+// Fonction pour vérifier si le serveur répond
+function waitForServer(port, maxAttempts = 30) {
+  return new Promise((resolve) => {
+    let attempts = 0;
+    
+    const check = () => {
+      attempts++;
+      console.log(`[Electron] Vérification serveur (tentative ${attempts}/${maxAttempts})...`);
+      
+      const req = http.get(`http://localhost:${port}/api/health`, (res) => {
+        console.log(`[Electron] ✅ Serveur répond avec status ${res.statusCode}`);
+        resolve(true);
+      });
+      
+      req.on('error', (err) => {
+        if (attempts < maxAttempts) {
+          setTimeout(check, 500);
+        } else {
+          console.log('[Electron] ❌ Serveur ne répond pas après', maxAttempts, 'tentatives');
+          resolve(false);
+        }
+      });
+      
+      req.setTimeout(1000, () => {
+        req.destroy();
+        if (attempts < maxAttempts) {
+          setTimeout(check, 500);
+        } else {
+          resolve(false);
+        }
+      });
+    };
+    
+    check();
+  });
+}
 
 // Parser .env manuellement (sans dépendance externe)
 function parseEnvFile(filePath) {
@@ -148,11 +187,64 @@ function createWindow() {
     mainWindow.show();
   });
 
+  // Afficher un écran de chargement d'abord
+  const loadingHTML = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        body { 
+          background: #1a1a2e; 
+          color: white; 
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          display: flex; 
+          flex-direction: column;
+          justify-content: center; 
+          align-items: center; 
+          height: 100vh; 
+          margin: 0;
+        }
+        .spinner { 
+          width: 50px; 
+          height: 50px; 
+          border: 3px solid #333; 
+          border-top-color: #4ade80; 
+          border-radius: 50%; 
+          animation: spin 1s linear infinite; 
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        h1 { margin-top: 20px; font-size: 24px; }
+        p { color: #888; margin-top: 10px; }
+        .error { color: #f87171; }
+        pre { 
+          background: #0f0f23; 
+          padding: 15px; 
+          border-radius: 8px; 
+          max-width: 80%; 
+          overflow: auto;
+          font-size: 12px;
+          color: #f87171;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="spinner"></div>
+      <h1>GTO Poker Bot</h1>
+      <p>Démarrage du serveur...</p>
+    </body>
+    </html>
+  `;
+  
+  mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(loadingHTML)}`);
+  mainWindow.show();
+
+  // Gérer les erreurs de chargement
+  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+    console.log('[Electron] Page failed to load:', errorCode, errorDescription);
+  });
+
   if (isDev) {
-    mainWindow.loadURL(`http://localhost:${PORT}`);
     mainWindow.webContents.openDevTools();
-  } else {
-    mainWindow.loadURL(`http://localhost:${PORT}`);
   }
 
   mainWindow.on('close', (event) => {
@@ -232,13 +324,20 @@ function startServer() {
     // Changer le working directory pour le serveur
     process.chdir(path.join(__dirname, '..'));
 
+    console.log('[Server] Checking if server file exists...');
+    if (!fs.existsSync(serverPath)) {
+      throw new Error('Fichier serveur introuvable: ' + serverPath);
+    }
+
     // Charger le serveur directement (pas de spawn)
+    console.log('[Server] Loading server module...');
     require(serverPath);
 
     serverStarted = true;
     console.log('[Server] Started successfully');
   } catch (error) {
     console.error('[Server] Failed to start:', error);
+    serverError = error;
 
     // Afficher une erreur si la BDD n'est pas accessible
     if (error.message && (error.message.includes('DATABASE_URL') || error.message.includes('ECONNREFUSED'))) {
@@ -267,7 +366,77 @@ function startServer() {
   }
 }
 
-app.whenReady().then(() => {
+// Afficher une page d'erreur dans la fenêtre
+function showErrorPage(title, message, details) {
+  if (!mainWindow) return;
+  
+  const errorHTML = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        body { 
+          background: #1a1a2e; 
+          color: white; 
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          display: flex; 
+          flex-direction: column;
+          justify-content: center; 
+          align-items: center; 
+          height: 100vh; 
+          margin: 0;
+          padding: 20px;
+          box-sizing: border-box;
+        }
+        h1 { color: #f87171; margin-bottom: 10px; }
+        p { color: #ccc; margin: 5px 0; text-align: center; max-width: 600px; }
+        pre { 
+          background: #0f0f23; 
+          padding: 15px; 
+          border-radius: 8px; 
+          max-width: 80%; 
+          overflow: auto;
+          font-size: 11px;
+          color: #f87171;
+          margin-top: 20px;
+          white-space: pre-wrap;
+          word-wrap: break-word;
+        }
+        .actions { margin-top: 20px; }
+        button {
+          background: #4ade80;
+          color: #000;
+          border: none;
+          padding: 10px 20px;
+          border-radius: 5px;
+          cursor: pointer;
+          font-size: 14px;
+          margin: 5px;
+        }
+        button:hover { background: #22c55e; }
+        .paths { 
+          background: #0f0f23; 
+          padding: 15px; 
+          border-radius: 8px;
+          font-size: 12px;
+          color: #888;
+          margin-top: 15px;
+          text-align: left;
+        }
+      </style>
+    </head>
+    <body>
+      <h1>${title}</h1>
+      <p>${message}</p>
+      ${details ? `<pre>${details}</pre>` : ''}
+    </body>
+    </html>
+  `;
+  
+  mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(errorHTML)}`);
+}
+
+app.whenReady().then(async () => {
   // Vérifier que .env est chargé
   if (!envLoaded) {
     const { dialog } = require('electron');
@@ -294,12 +463,39 @@ app.whenReady().then(() => {
     return;
   }
 
+  // Créer la fenêtre avec écran de chargement
+  createWindow();
+  createTray();
+
+  // Démarrer le serveur
+  console.log('[Electron] Démarrage du serveur...');
+  console.log('[Electron] DATABASE_URL:', process.env.DATABASE_URL ? '***configuré***' : 'MANQUANT');
+  
   startServer();
 
-  setTimeout(() => {
-    createWindow();
-    createTray();
-  }, 2000);
+  // Attendre que le serveur soit prêt
+  const serverReady = await waitForServer(PORT, 30);
+  
+  if (serverReady) {
+    console.log('[Electron] Chargement de l\'interface...');
+    mainWindow.loadURL(`http://localhost:${PORT}`);
+  } else {
+    console.log('[Electron] Le serveur n\'a pas démarré correctement');
+    
+    const errorDetails = serverError ? serverError.toString() : 
+      'Le serveur ne répond pas sur le port ' + PORT + '.\n\n' +
+      'Vérifiez que:\n' +
+      '1. PostgreSQL est installé et démarré (services.msc)\n' +
+      '2. La base de données poker_bot existe\n' +
+      '3. Les identifiants dans .env sont corrects\n\n' +
+      'DATABASE_URL: ' + (process.env.DATABASE_URL || 'NON DÉFINI');
+    
+    showErrorPage(
+      'Erreur de démarrage',
+      'Le serveur n\'a pas pu démarrer. Vérifiez la configuration de PostgreSQL.',
+      errorDetails
+    );
+  }
 });
 
 app.on('window-all-closed', () => {
