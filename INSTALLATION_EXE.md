@@ -7,11 +7,18 @@
 
 **IMPORTANT**: Avant de lancer l'application pour la première fois, vous devez initialiser la base de données PostgreSQL.
 
+**Méthode 1 : Double-clic simple (RECOMMANDÉE)**
 1. **Ouvrir le dossier `script`** dans le répertoire de l'application
-2. **Clic droit** sur `INIT-DATABASE.bat`
-3. **Sélectionner** "Exécuter en tant qu'administrateur"
-4. **Entrer le mot de passe PostgreSQL** quand demandé (défini lors de l'installation de PostgreSQL)
-5. **Attendre** la fin de l'installation (5-10 minutes)
+2. **Double-cliquer** sur `INIT-DATABASE.bat`
+3. **Entrer le mot de passe PostgreSQL** quand demandé
+4. **Attendre** la fin de l'installation (5-10 minutes)
+
+**Méthode 2 : PowerShell direct (Avancée)**
+1. **Ouvrir PowerShell en Administrateur**
+2. **Naviguer** vers le dossier `script`
+3. **Exécuter** : `.\init-database-windows.ps1`
+
+**Note** : Les deux méthodes font exactement la même chose. `INIT-DATABASE.bat` est juste un lanceur qui appelle `init-database-windows.ps1`.
 
 **Ce script fait TOUT automatiquement** :
 - Installe PostgreSQL si nécessaire
