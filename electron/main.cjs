@@ -8,22 +8,41 @@ let serverStarted = false;
 
 // Charger .env depuis le bon emplacement
 function loadEnvFile() {
+  // Obtenir le chemin de l'exécutable
+  const exePath = process.execPath;
+  const exeDir = path.dirname(exePath);
+  
+  // Pour les exécutables pkg, resources est souvent dans le même dossier
   const possibleEnvPaths = [
+    path.join(exeDir, '.env'), // Même dossier que l'exe (priorité absolue)
+    path.join(exeDir, '..', '.env'), // Dossier parent de l'exe
     path.join(process.cwd(), '.env'), // Dossier courant
-    path.join(app.getPath('exe'), '..', '.env'), // À côté de l'exe
-    path.join(app.getPath('userData'), '.env'), // Dans userData
-    path.join(__dirname, '..', '.env'), // Dossier parent
+    path.join(__dirname, '.env'), // Dossier du script
+    path.join(__dirname, '..', '.env'), // Dossier parent du script
   ];
+  
+  // Ajouter app.getPath seulement si app est prêt
+  if (app.isReady()) {
+    possibleEnvPaths.push(path.join(app.getPath('exe'), '..', '.env'));
+    possibleEnvPaths.push(path.join(app.getPath('userData'), '.env'));
+  }
+
+  console.log('[Electron] Recherche .env dans:');
+  console.log('[Electron] - Exe path:', exePath);
+  console.log('[Electron] - Exe dir:', exeDir);
+  console.log('[Electron] - CWD:', process.cwd());
+  console.log('[Electron] - __dirname:', __dirname);
 
   for (const envPath of possibleEnvPaths) {
+    console.log(`[Electron] Vérification: ${envPath}`);
     if (fs.existsSync(envPath)) {
-      console.log(`[Electron] Fichier .env trouvé: ${envPath}`);
+      console.log(`[Electron] ✅ Fichier .env trouvé: ${envPath}`);
       require('dotenv').config({ path: envPath });
       return true;
     }
   }
 
-  console.error('[Electron] Aucun fichier .env trouvé dans:', possibleEnvPaths);
+  console.error('[Electron] ❌ Aucun fichier .env trouvé dans:', possibleEnvPaths);
   return false;
 }
 
@@ -176,15 +195,17 @@ app.whenReady().then(() => {
   // Vérifier que .env est chargé
   if (!envLoaded) {
     const { dialog } = require('electron');
+    const exeDir = path.dirname(process.execPath);
     dialog.showErrorBox(
       'Configuration manquante',
       'Le fichier .env est manquant.\n\n' +
       'Veuillez:\n' +
       '1. Exécuter script\\INIT-DATABASE.bat\n' +
-      '2. Copier le fichier .env généré à côté de l\'exécutable\n\n' +
-      'Chemin attendu: ' + path.join(app.getPath('exe'), '..', '.env')
+      '2. Copier le fichier .env dans le MÊME DOSSIER que l\'exécutable\n\n' +
+      'Dossier de l\'exécutable: ' + exeDir + '\n' +
+      'Fichier attendu: ' + path.join(exeDir, '.env') + '\n\n' +
+      'Note: Le .env doit être directement à côté du fichier .exe'
     );
-    // Si .env est manquant, on ne démarre pas le serveur et on ne crée pas les fenêtres
     return;
   }
 
