@@ -1,6 +1,5 @@
-import "dotenv/config";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
+import pg from "pg";
 import { 
   botSessions, 
   pokerTables, 
@@ -13,6 +12,12 @@ import {
   users
 } from "@shared/schema";
 import { eq, desc, sql, count } from "drizzle-orm";
+
+const { Pool } = pg;
+
+if (!process.env.DATABASE_URL) {
+  throw new Error("DATABASE_URL must be set.");
+}
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const db = drizzle(pool);
@@ -48,7 +53,6 @@ interface DatabaseReport {
 async function inspectDatabase(): Promise<DatabaseReport> {
   console.log("🔍 Inspection de la base de données...\n");
 
-  // Test de connexion
   let connectionInfo = { status: "❌ Non connecté" };
   try {
     const result = await db.execute(sql`SELECT current_database() as db, current_user as user`);
@@ -64,70 +68,37 @@ async function inspectDatabase(): Promise<DatabaseReport> {
     process.exit(1);
   }
 
-  // Comptage des sessions
   const allSessions = await db.select().from(botSessions).orderBy(desc(botSessions.startedAt));
   const activeSessions = allSessions.filter(s => s.status === "running");
   const recentSessions = allSessions.slice(0, 5);
 
-  // Comptage des tables
   const allTables = await db.select().from(pokerTables).orderBy(desc(pokerTables.createdAt));
   const activeTables = allTables.filter(t => t.status === "playing" || t.status === "waiting");
   const recentTables = allTables.slice(0, 5);
 
-  // Comptage des mains
   const allHands = await db.select().from(handHistories).orderBy(desc(handHistories.playedAt));
   const recentHands = allHands.slice(0, 10);
 
-  // Comptage des logs
   const allLogs = await db.select().from(actionLogs).orderBy(desc(actionLogs.createdAt));
   const recentLogs = allLogs.slice(0, 20);
 
-  // Stats
   const allStats = await db.select().from(botStats).orderBy(desc(botStats.updatedAt));
   const recentStats = allStats.slice(0, 5);
 
-  // Utilisateurs
   const allUsers = await db.select().from(users);
 
-  // Configurations
   const humanizer = await db.select().from(humanizerConfig).limit(1);
   const gto = await db.select().from(gtoConfig).limit(1);
   const platform = await db.select().from(platformConfig).limit(1);
 
-  // Statistiques agrégées
   const totalHandsPlayed = allHands.length;
   const totalProfit = allSessions.reduce((sum, s) => sum + (s.totalProfit || 0), 0);
   const avgHandsPerSession = allSessions.length > 0 
     ? totalHandsPlayed / allSessions.length 
     : 0;
 
-  // Table la plus active
-  const tableHandCounts = await db
-    .select({
-      tableId: handHistories.tableId,
-      count: count(),
-    })
-    .from(handHistories)
-    .groupBy(handHistories.tableId)
-    .orderBy(desc(count()))
-    .limit(1);
-
   let mostActiveTable = null;
-  if (tableHandCounts.length > 0 && tableHandCounts[0].tableId) {
-    const table = await db
-      .select()
-      .from(pokerTables)
-      .where(eq(pokerTables.id, tableHandCounts[0].tableId))
-      .limit(1);
-    if (table.length > 0) {
-      mostActiveTable = {
-        ...table[0],
-        handsPlayed: tableHandCounts[0].count,
-      };
-    }
-  }
 
-  // Activité récente (dernières 24h)
   const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
   const recentActivity = await db
     .select()
@@ -188,7 +159,6 @@ function displayReport(report: DatabaseReport): void {
   console.log("📊 RAPPORT D'INSPECTION DE LA BASE DE DONNÉES");
   console.log("═══════════════════════════════════════════════════════════\n");
 
-  // Connexion
   console.log("🔌 CONNEXION");
   console.log(`   Statut: ${report.connection.status}`);
   if (report.connection.database) {
@@ -197,7 +167,6 @@ function displayReport(report: DatabaseReport): void {
   }
   console.log();
 
-  // Sessions
   console.log("📋 SESSIONS");
   console.log(`   Total: ${report.tables.botSessions.total}`);
   console.log(`   Actives: ${report.tables.botSessions.active}`);
@@ -211,7 +180,6 @@ function displayReport(report: DatabaseReport): void {
   }
   console.log();
 
-  // Tables
   console.log("🎰 TABLES DE POKER");
   console.log(`   Total: ${report.tables.pokerTables.total}`);
   console.log(`   Actives: ${report.tables.pokerTables.active}`);
@@ -224,7 +192,6 @@ function displayReport(report: DatabaseReport): void {
   }
   console.log();
 
-  // Mains
   console.log("🃏 HISTORIQUE DES MAINS");
   console.log(`   Total: ${report.tables.handHistories.total}`);
   if (report.tables.handHistories.recent.length > 0) {
@@ -238,7 +205,6 @@ function displayReport(report: DatabaseReport): void {
   }
   console.log();
 
-  // Logs
   console.log("📝 LOGS D'ACTIONS");
   console.log(`   Total: ${report.tables.actionLogs.total}`);
   if (report.tables.actionLogs.recent.length > 0) {
@@ -250,7 +216,6 @@ function displayReport(report: DatabaseReport): void {
   }
   console.log();
 
-  // Statistiques
   console.log("📈 STATISTIQUES GLOBALES");
   console.log(`   Total mains jouées: ${report.statistics.totalHandsPlayed}`);
   console.log(`   Profit total: ${report.statistics.totalProfit.toFixed(2)}`);
@@ -260,7 +225,6 @@ function displayReport(report: DatabaseReport): void {
   }
   console.log();
 
-  // Configurations
   console.log("⚙️ CONFIGURATIONS");
   console.log(`   Humanizer: ${report.tables.configs.humanizer ? '✅ Configuré' : '❌ Non configuré'}`);
   if (report.tables.configs.humanizer) {
@@ -284,7 +248,6 @@ function displayReport(report: DatabaseReport): void {
   }
   console.log();
 
-  // Utilisateurs
   console.log("👥 UTILISATEURS");
   console.log(`   Total: ${report.tables.users.total}`);
   if (report.tables.users.list.length > 0) {
@@ -294,7 +257,6 @@ function displayReport(report: DatabaseReport): void {
   }
   console.log();
 
-  // Activité récente
   if (report.statistics.recentActivity.length > 0) {
     console.log("🕐 ACTIVITÉ RÉCENTE (24h)");
     report.statistics.recentActivity.forEach((activity, i) => {
@@ -314,7 +276,6 @@ async function main() {
     const report = await inspectDatabase();
     displayReport(report);
     
-    // Option pour exporter en JSON
     if (process.argv.includes('--json')) {
       console.log(JSON.stringify(report, null, 2));
     }
