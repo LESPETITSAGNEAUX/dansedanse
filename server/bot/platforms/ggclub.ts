@@ -38,7 +38,7 @@ import { logger } from "../../logger";
 import { getHumanizer } from "../humanizer"; // Import humanizer
 
 // Import helper functions
-import { toGrayscale, detectEdges as findEdges, findRectangles } from "../image-processing"; // Renamed detectEdges to findEdges to avoid conflict
+import { toGrayscale } from "../image-processing";
 import { ActionPattern } from "../anti-detection-monitor";
 
 
@@ -1574,8 +1574,8 @@ export class GGClubAdapter extends PlatformAdapter {
     const grayscale = toGrayscale(screenBuffer, imageWidth, imageHeight);
 
     // Detect rectangular contours (buttons = rounded rectangles)
-    const edges = findEdges(grayscale, imageWidth, imageHeight, region); // Use renamed findEdges
-    const rectangles = findRectangles(edges, region);
+    const edges = this.detectEdges(grayscale, imageWidth, imageHeight, region);
+    const rectangles = this.findRectangles(edges, region);
 
     for (const rect of rectangles) {
       // Filter rectangles that look like buttons (size, aspect ratio)
