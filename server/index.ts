@@ -117,10 +117,20 @@ app.use((req, res, next) => {
   await registerRoutes(httpServer, app);
 
   if (process.env.NODE_ENV === "development") {
-    // Import dynamique de vite uniquement en dev (pas inclus dans le bundle prod)
-    const { setupVite } = await import("./vite");
-    await setupVite(httpServer, app);
+    console.log('[STARTUP] Mode développement détecté, chargement de Vite...');
+    try {
+      // Import dynamique de vite uniquement en dev (pas inclus dans le bundle prod)
+      console.log('[STARTUP] Import de ./vite...');
+      const { setupVite } = await import("./vite");
+      console.log('[STARTUP] setupVite importé, lancement...');
+      await setupVite(httpServer, app);
+      console.log('[STARTUP] Vite configuré avec succès');
+    } catch (error) {
+      console.error('[STARTUP] ERREUR lors de la configuration de Vite:', error);
+      throw error;
+    }
   } else {
+    console.log('[STARTUP] Mode production, chargement des fichiers statiques...');
     serveStatic(app);
   }
 
