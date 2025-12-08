@@ -491,7 +491,8 @@ export class GGClubAdapter extends PlatformAdapter {
     ];
   }
 
-  private async scanForGGClubWindows(): Promise<Array<{
+  // Type definition for window info returned by scanForGGClubWindows
+  interface WindowInfo {
     handle: number;
     title: string;
     x: number;
@@ -500,45 +501,58 @@ export class GGClubAdapter extends PlatformAdapter {
     height: number;
     isActive: boolean;
     isMinimized: boolean;
-  }>> {
-    const results: Array<{
-      handle: number;
-      title: string;
-      x: number;
-      y: number;
-      width: number;
-      height: number;
-      isActive: boolean;
-      isMinimized: boolean;
-    }> = [];
+  }
 
-    logger.debug("GGClubAdapter", "Scan des fenêtres Windows", {
-      windowManagerAvailable: !!windowManager,
-      platform: process.platform,
-      isReplit: IS_REPLIT,
-    });
+  private async scanForGGClubWindows(): Promise<WindowInfo[]> {
+    const results: WindowInfo[] = [];
 
-    if (windowManager) {
+    if (IS_WINDOWS && windowManager) {
       try {
-        const windows = windowManager.windowManager.getWindows();
-        const activeWindow = windowManager.windowManager.getActiveWindow();
-        
-        logger.debug("GGClubAdapter", `Nombre total de fenêtres : ${windows.length}`);
+        const windows = windowManager.getWindows();
+        const activeWindow = windowManager.getActiveWindow();
+
+        logger.info("GGClubAdapter", `🔍 Scan de ${windows.length} fenêtres Windows...`);
+
+        // Log TOUTES les fenêtres pour debug
+        const allTitles: string[] = [];
+        for (const win of windows) {
+          const title = win.getTitle();
+          if (title) {
+            allTitles.push(title);
+          }
+        }
+
+        logger.info("GGClubAdapter", "📋 Liste complète des fenêtres ouvertes", { 
+          count: allTitles.length,
+          titles: allTitles.slice(0, 20) // Limite à 20 pour éviter spam
+        });
 
         for (const win of windows) {
           const title = win.getTitle();
-          
-          // Log toutes les fenêtres pour debug
-          logger.debug("GGClubAdapter", "Fenêtre détectée", { title });
-          
-          if (title && (
-            title.includes("GGClub") || 
-            title.includes("GGPoker") || 
-            title.includes("NL") ||
-            title.includes("PLO") ||
-            title.match(/Table\s*\d+/i)
-          )) {
+
+          if (!title) continue;
+
+          // Critères de détection élargis (case-insensitive)
+          const titleLower = title.toLowerCase();
+          const isGGPokerWindow = 
+            titleLower.includes("ggclub") || 
+            titleLower.includes("ggpoker") || 
+            titleLower.includes("gg poker") ||
+            titleLower.includes("nl") ||
+            titleLower.includes("plo") ||
+            titleLower.match(/table\s*\d+/i) ||
+            titleLower.includes("holdem") ||
+            titleLower.includes("poker") && (titleLower.includes("table") || titleLower.includes("bb"));
+
+          if (isGGPokerWindow) {
             const bounds = win.getBounds();
+
+            // Ne pas ajouter les fenêtres minimisées/invisibles
+            if (bounds.width === 0 || bounds.height === 0) {
+              logger.debug("GGClubAdapter", "⏭️ Fenêtre ignorée (minimisée)", { title });
+              continue;
+            }
+
             results.push({
               handle: win.id,
               title,
@@ -547,29 +561,38 @@ export class GGClubAdapter extends PlatformAdapter {
               width: bounds.width,
               height: bounds.height,
               isActive: activeWindow && activeWindow.id === win.id,
-              isMinimized: bounds.width === 0 && bounds.height === 0,
+              isMinimized: false,
             });
-            
+
             logger.info("GGClubAdapter", "✅ Table GGClub détectée", {
               handle: win.id,
               title,
               dimensions: `${bounds.width}x${bounds.height}`,
+              position: `(${bounds.x}, ${bounds.y})`,
             });
           }
         }
       } catch (error) {
-        logger.error("GGClubAdapter", "Erreur scan windows", { error: String(error) });
+        logger.error("GGClubAdapter", "❌ Erreur scan windows", { 
+          error: String(error),
+          stack: error instanceof Error ? error.stack : undefined
+        });
       }
     } else {
-      logger.warning("GGClubAdapter", "❌ node-window-manager NON disponible - modules natifs non chargés");
+      logger.error("GGClubAdapter", "❌ node-window-manager NON disponible", {
+        IS_WINDOWS,
+        windowManagerLoaded: !!windowManager,
+        platform: process.platform,
+        solution: "Vérifiez que vous êtes sur Windows et que le module est chargé"
+      });
     }
 
-    // Si aucune fenêtre réelle détectée, logger l'erreur
+    // Logs finaux
     if (results.length === 0) {
       logger.warning("GGClubAdapter", "❌ Aucune table GGClub détectée", {
         windowManagerAvailable: !!windowManager,
         platform: process.platform,
-        suggestion: "Vérifiez que GGClub est ouvert avec une table active",
+        suggestion: "1. Vérifiez que GGClub est OUVERT\n2. Vérifiez qu'une table est ACTIVE (pas minimisée)\n3. Regardez les logs ci-dessus pour voir toutes les fenêtres détectées",
       });
     } else {
       logger.session("GGClubAdapter", `✅ ${results.length} table(s) détectée(s)`);
@@ -1280,7 +1303,7 @@ export class GGClubAdapter extends PlatformAdapter {
       const seatRegion = this.screenLayout.playerSeats[i];
       // Ensure seatRegion is valid before proceeding
       if (!seatRegion || seatRegion.width <= 0 || seatRegion.height <= 0) continue;
-      
+
       const playerInfo = await this.analyzePlayerSeat(screenBuffer, seatRegion, i, imageWidth, imageHeight);
 
       if (playerInfo) {
@@ -2003,7 +2026,7 @@ export class GGClubAdapter extends PlatformAdapter {
     if (robot) {
       try {
         const currentPos = robot.getMousePos();
-        
+
         // Determine target position (absolute screen coordinates)
         const targetX = x;
         const targetY = y;
@@ -2365,7 +2388,7 @@ export class GGClubAdapter extends PlatformAdapter {
 
     if (windowManager) {
       try {
-        const windows = windowManager.windowManager.getWindows();
+        const windows = windowManager.getWindows();
         const targetWindow = windows.find((w: any) => w.id === windowHandle);
         if (targetWindow) {
           targetWindow.minimize();
@@ -2385,7 +2408,7 @@ export class GGClubAdapter extends PlatformAdapter {
 
     if (windowManager) {
       try {
-        const windows = windowManager.windowManager.getWindows();
+        const windows = windowManager.getWindows();
         const targetWindow = windows.find((w: any) => w.id === windowHandle);
         if (targetWindow) {
           targetWindow.restore(); // Use restore method if available
