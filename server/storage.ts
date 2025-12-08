@@ -356,13 +356,21 @@ export class DatabaseStorage implements IStorage {
     if (!existing) {
       logger.warning('[Storage]', 'Config non existante, création...');
       const platformName = updates.platformName || "unknown";
-      return this.createPlatformConfig({ 
+      const newConfig = await this.createPlatformConfig({ 
         platformName,
         username: updates.username || null,
         enabled: updates.enabled ?? false,
         connectionStatus: updates.connectionStatus || "disconnected",
         settings: updates.settings || null,
       } as InsertPlatformConfig);
+      
+      logger.session('[Storage]', '✅ Config plateforme créée', {
+        id: newConfig.id,
+        platform: newConfig.platformName,
+        username: newConfig.username
+      });
+      
+      return newConfig;
     }
     
     const mergedUpdates: Partial<PlatformConfig> = {};
@@ -386,6 +394,13 @@ export class DatabaseStorage implements IStorage {
       .set(mergedUpdates)
       .where(eq(this.schema.platformConfig.id, existing.id))
       .returning();
+    
+    logger.session('[Storage]', '✅ Config plateforme mise à jour', {
+      id: result[0].id,
+      platform: result[0].platformName,
+      username: result[0].username
+    });
+    
     return result[0];
   }
 
