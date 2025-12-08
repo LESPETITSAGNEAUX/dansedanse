@@ -7,12 +7,29 @@ Le GTO Poker Bot dispose d'un système de logs complet et structuré pour Window
 
 ## 📍 Emplacement des logs
 
-Les fichiers de logs sont stockés dans le répertoire `logs/` à la racine du projet :
+### Application Electron installée sur Windows
+
+Quand l'application est installée et lancée depuis Windows, les logs sont dans :
 
 ```
-logs/
-├── bot-2024-01-08.log         # Logs généraux du bot (par date)
-└── session-2024-01-08.log     # Logs de session spécifiques
+C:\Users\<VotreNom>\AppData\Roaming\GTO Poker Bot\logs\
+├── bot-2024-12-08.log         # Logs généraux du bot (par date)
+└── session-2024-12-08.log     # Logs de session spécifiques
+```
+
+**Accès rapide :** Appuyez sur `Win+R` et tapez :
+```
+%APPDATA%\GTO Poker Bot\logs
+```
+
+### Mode développement (Node.js)
+
+En mode développement, les logs sont dans le répertoire du projet :
+
+```
+[racine_projet]/logs/
+├── bot-2024-12-08.log
+└── session-2024-12-08.log
 ```
 
 ## 🔧 Architecture du système de logs

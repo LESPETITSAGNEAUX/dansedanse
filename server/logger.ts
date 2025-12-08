@@ -1,12 +1,48 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import * as os from "os";
 
-const LOGS_DIR = path.join(process.cwd(), "logs");
+function getLogsDirectory(): string {
+  const isElectron = process.env.ELECTRON_RUN_AS_NODE === "1" || 
+                     (process as any).type !== undefined ||
+                     process.versions && (process.versions as any).electron;
+  
+  const isWindows = os.platform() === "win32";
+  
+  if (isElectron && isWindows) {
+    const appDataPath = process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming");
+    return path.join(appDataPath, "GTO Poker Bot", "logs");
+  }
+  
+  if (isWindows) {
+    const exeDir = process.env.PORTABLE_EXECUTABLE_DIR || 
+                   path.dirname(process.execPath);
+    if (exeDir && !exeDir.includes("node_modules")) {
+      const logsPath = path.join(exeDir, "logs");
+      try {
+        fs.mkdirSync(logsPath, { recursive: true });
+        fs.accessSync(logsPath, fs.constants.W_OK);
+        return logsPath;
+      } catch {
+      }
+    }
+    const appDataPath = process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming");
+    return path.join(appDataPath, "GTO Poker Bot", "logs");
+  }
+  
+  return path.join(process.cwd(), "logs");
+}
 
-// Créer le dossier logs s'il n'existe pas
-if (!fs.existsSync(LOGS_DIR)) {
-  fs.mkdirSync(LOGS_DIR, { recursive: true });
+const LOGS_DIR = getLogsDirectory();
+
+try {
+  if (!fs.existsSync(LOGS_DIR)) {
+    fs.mkdirSync(LOGS_DIR, { recursive: true });
+  }
+  console.log(`[Logger] Logs directory: ${LOGS_DIR}`);
+} catch (error) {
+  console.error(`[Logger] Failed to create logs directory: ${LOGS_DIR}`, error);
 }
 
 type LogLevel = "info" | "warning" | "error" | "debug" | "session";
@@ -22,25 +58,32 @@ interface LogEntry {
 class Logger {
   private logFile: string;
   private sessionFile: string;
+  private logsDir: string;
 
   constructor() {
+    this.logsDir = LOGS_DIR;
     const date = new Date().toISOString().split("T")[0];
-    this.logFile = path.join(LOGS_DIR, `bot-${date}.log`);
-    this.sessionFile = path.join(LOGS_DIR, `session-${date}.log`);
+    this.logFile = path.join(this.logsDir, `bot-${date}.log`);
+    this.sessionFile = path.join(this.logsDir, `session-${date}.log`);
+  }
+
+  getLogsDirectory(): string {
+    return this.logsDir;
   }
 
   private writeLog(entry: LogEntry, toSessionFile = false): void {
     const logLine = `[${entry.timestamp}] [${entry.level.toUpperCase()}] [${entry.component}] ${entry.message}${entry.data ? ` | DATA: ${JSON.stringify(entry.data)}` : ""}\n`;
     
-    // Console
     console.log(logLine.trim());
     
-    // Fichier principal
-    fs.appendFileSync(this.logFile, logLine);
-    
-    // Fichier session si demandé
-    if (toSessionFile) {
-      fs.appendFileSync(this.sessionFile, logLine);
+    try {
+      fs.appendFileSync(this.logFile, logLine);
+      
+      if (toSessionFile) {
+        fs.appendFileSync(this.sessionFile, logLine);
+      }
+    } catch (error) {
+      console.error(`[Logger] Failed to write log: ${error}`);
     }
   }
 

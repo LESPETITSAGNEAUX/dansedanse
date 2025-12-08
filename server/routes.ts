@@ -14,6 +14,7 @@ import { z } from "zod";
 import { GGClubCaptureTest } from "./bot/tests/ggclub-capture-test";
 import { MultiTablePerformanceTest } from "./bot/tests/multi-table-performance";
 import { E2ETest } from "./bot/tests/e2e-test";
+import { logger } from "./logger";
 
 
 const platformConnectSchema = z.object({
@@ -117,6 +118,12 @@ export async function registerRoutes(
     let currentDeviceId = tempDeviceId;
     let isAuthenticated = false;
 
+    logger.info("WebSocket", "Nouvelle connexion entrante", { 
+      tempDeviceId, 
+      remoteAddress: req.socket.remoteAddress,
+      url: req.url 
+    });
+
     // Extraire le token d'authentification
     const url = new URL(req.url || "", `ws://${req.headers.host}`);
     const token = url.searchParams.get("token") || req.headers["x-auth-token"];
@@ -125,7 +132,10 @@ export async function registerRoutes(
     const validToken = process.env.WS_AUTH_TOKEN || "poker-bot-secure-token-2024";
     
     if (token !== validToken) {
-      console.warn(`[WebSocket] Tentative de connexion non authentifiée: ${tempDeviceId}`);
+      logger.warning("WebSocket", "Tentative de connexion non authentifiée", { 
+        tempDeviceId, 
+        hasToken: !!token 
+      });
       ws.send(JSON.stringify({
         type: "error",
         payload: { message: "Authentication required" }
@@ -137,7 +147,7 @@ export async function registerRoutes(
     isAuthenticated = true;
     connectedClients.add(ws);
 
-    console.log(`Client WebSocket authentifié (temp: ${tempDeviceId})`);
+    logger.info("WebSocket", "Client authentifié avec succès", { tempDeviceId });
 
     const tableManager = getTableManager();
     const platformManager = getPlatformManager();
