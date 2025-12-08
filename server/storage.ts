@@ -13,6 +13,7 @@ import {
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc } from "drizzle-orm";
+import { logger } from "./logger";
 
 function deepMerge(target: any, source: any): any {
   if (source === null || source === undefined) {
