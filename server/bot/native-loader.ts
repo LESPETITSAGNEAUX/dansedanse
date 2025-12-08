@@ -1,12 +1,29 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import { createRequire } from 'module';
-import { fileURLToPath } from 'url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// Compatible CommonJS et ESM
+// @ts-ignore - __dirname peut être défini par esbuild en mode CJS
+const currentDir = typeof __dirname !== 'undefined' ? __dirname : process.cwd();
 
-const esmRequire = createRequire(import.meta.url);
+// Créer require de manière compatible CJS/ESM
+let esmRequire: NodeRequire;
+try {
+  // En ESM, utiliser createRequire
+  // @ts-ignore
+  if (typeof import.meta !== 'undefined' && import.meta.url) {
+    // @ts-ignore
+    esmRequire = createRequire(import.meta.url);
+  } else {
+    // En CJS, utiliser require directement
+    // @ts-ignore
+    esmRequire = typeof require !== 'undefined' ? require : createRequire(__filename || process.cwd());
+  }
+} catch {
+  // Fallback absolu
+  // @ts-ignore
+  esmRequire = require;
+}
 
 const IS_ELECTRON = !!(process as any).resourcesPath || !!process.env.ELECTRON_RUN_AS_NODE;
 const IS_PACKAGED = IS_ELECTRON && !process.argv[0]?.includes('node_modules');
