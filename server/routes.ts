@@ -549,7 +549,10 @@ export async function registerRoutes(
   app.patch("/api/platform-config", async (req, res) => {
     try {
       const updates = req.body;
+      console.log("[API] PATCH /api/platform-config - Received updates:", JSON.stringify(updates));
+      
       const config = await storage.updatePlatformConfig(updates);
+      console.log("[API] PATCH /api/platform-config - Saved config:", JSON.stringify(config));
 
       broadcastToClients({
         type: "platform_config_updated",
@@ -558,6 +561,7 @@ export async function registerRoutes(
 
       res.json({ success: true, config });
     } catch (error: any) {
+      console.error("[API] PATCH /api/platform-config - Error:", error.message);
       res.status(500).json({ error: error.message });
     }
   });

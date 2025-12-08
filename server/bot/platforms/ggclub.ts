@@ -36,6 +36,7 @@ import { visionErrorLogger } from "../vision-error-logger";
 import { PokerOCREngine, getPokerOCREngine } from "../ml-ocr";
 import { logger } from "../../logger";
 import { getHumanizer } from "../humanizer"; // Import humanizer
+import { loadNativeModule, IS_PACKAGED } from "../native-loader";
 
 // Import helper functions
 import { toGrayscale } from "../image-processing";
@@ -55,6 +56,7 @@ async function loadNativeModules(): Promise<void> {
     platform: process.platform,
     isWindows: IS_WINDOWS,
     isReplit: IS_REPLIT,
+    isPackaged: IS_PACKAGED,
   });
 
   // Tesseract.js - compatible tous OS
@@ -68,22 +70,36 @@ async function loadNativeModules(): Promise<void> {
   // Modules natifs Windows uniquement
   if (IS_WINDOWS && !IS_REPLIT) {
     try {
-      screenshotDesktop = (await import("screenshot-desktop")).default;
-      logger.info("GGClubAdapter", "✓ screenshot-desktop chargé (Windows)");
+      const screenshotModule = await loadNativeModule<any>("screenshot-desktop");
+      screenshotDesktop = screenshotModule?.default || screenshotModule;
+      if (screenshotDesktop) {
+        logger.info("GGClubAdapter", "✓ screenshot-desktop chargé (Windows)");
+      } else {
+        throw new Error("Module loaded but no default export");
+      }
     } catch (e) {
       logger.error("GGClubAdapter", "❌ screenshot-desktop ÉCHEC", { error: String(e) });
     }
 
     try {
-      robot = (await import("robotjs")).default;
-      logger.info("GGClubAdapter", "✓ robotjs chargé (Windows)");
+      const robotModule = await loadNativeModule<any>("robotjs");
+      robot = robotModule?.default || robotModule;
+      if (robot) {
+        logger.info("GGClubAdapter", "✓ robotjs chargé (Windows)");
+      } else {
+        throw new Error("Module loaded but no default export");
+      }
     } catch (e) {
       logger.error("GGClubAdapter", "❌ robotjs ÉCHEC", { error: String(e) });
     }
 
     try {
-      windowManager = await import("node-window-manager");
-      logger.info("GGClubAdapter", "✓ node-window-manager chargé (Windows)");
+      windowManager = await loadNativeModule<any>("node-window-manager");
+      if (windowManager) {
+        logger.info("GGClubAdapter", "✓ node-window-manager chargé (Windows)");
+      } else {
+        throw new Error("Module loaded but null");
+      }
     } catch (e) {
       logger.error("GGClubAdapter", "❌ node-window-manager ÉCHEC - DÉTECTION TABLES IMPOSSIBLE", { 
         error: String(e),
@@ -127,6 +143,17 @@ interface ColorSignature {
   g: number;
   b: number;
   tolerance: number;
+}
+
+interface GGClubWindowInfo {
+  handle: number;
+  title: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  isActive: boolean;
+  isMinimized: boolean;
 }
 
 const GGCLUB_CARD_COLORS: Record<string, ColorSignature> = {
@@ -491,20 +518,8 @@ export class GGClubAdapter extends PlatformAdapter {
     ];
   }
 
-  // Type definition for window info returned by scanForGGClubWindows
-  interface WindowInfo {
-    handle: number;
-    title: string;
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    isActive: boolean;
-    isMinimized: boolean;
-  }
-
-  private async scanForGGClubWindows(): Promise<WindowInfo[]> {
-    const results: WindowInfo[] = [];
+  private async scanForGGClubWindows(): Promise<GGClubWindowInfo[]> {
+    const results: GGClubWindowInfo[] = [];
 
     if (IS_WINDOWS && windowManager) {
       try {

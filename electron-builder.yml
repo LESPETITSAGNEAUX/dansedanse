@@ -23,6 +23,14 @@ files:
   - "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}"
   - "!**/node_modules/.cache/**/*"
 
+asarUnpack:
+  - "**/node_modules/robotjs/**/*"
+  - "**/node_modules/node-window-manager/**/*"
+  - "**/node_modules/screenshot-desktop/**/*"
+  - "**/node_modules/extract-file-icon/**/*"
+  - "**/node_modules/ref-napi/**/*"
+  - "**/node_modules/ffi-napi/**/*"
+
 extraResources:
   - from: native/build/Release/
     to: native/
@@ -65,7 +73,7 @@ asar: true
 compression: maximum
 
 nodeGypRebuild: false
-npmRebuild: false
+npmRebuild: true
 
 electronDownload:
   cache: .cache/electron

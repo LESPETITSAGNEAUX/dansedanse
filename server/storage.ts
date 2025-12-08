@@ -14,6 +14,31 @@ import {
 import { db } from "./db";
 import { eq, desc } from "drizzle-orm";
 
+function deepMerge(target: any, source: any): any {
+  if (source === null || source === undefined) {
+    return target;
+  }
+  if (target === null || target === undefined) {
+    return source;
+  }
+  if (typeof source !== 'object' || typeof target !== 'object') {
+    return source;
+  }
+  if (Array.isArray(source)) {
+    return source;
+  }
+  
+  const result = { ...target };
+  for (const key of Object.keys(source)) {
+    if (typeof source[key] === 'object' && source[key] !== null && !Array.isArray(source[key])) {
+      result[key] = deepMerge(target[key], source[key]);
+    } else {
+      result[key] = source[key];
+    }
+  }
+  return result;
+}
+
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
@@ -267,10 +292,35 @@ export class DatabaseStorage implements IStorage {
   async updatePlatformConfig(updates: Partial<PlatformConfig>): Promise<PlatformConfig> {
     const existing = await this.getPlatformConfig();
     if (!existing) {
-      return this.createPlatformConfig({ platformName: "unknown", ...updates } as InsertPlatformConfig);
+      const platformName = updates.platformName || "unknown";
+      return this.createPlatformConfig({ 
+        platformName,
+        username: updates.username || null,
+        enabled: updates.enabled ?? false,
+        connectionStatus: updates.connectionStatus || "disconnected",
+        settings: updates.settings || null,
+      } as InsertPlatformConfig);
     }
+    
+    const mergedUpdates: Partial<PlatformConfig> = {};
+    if (updates.platformName !== undefined) mergedUpdates.platformName = updates.platformName;
+    if (updates.username !== undefined) mergedUpdates.username = updates.username;
+    if (updates.enabled !== undefined) mergedUpdates.enabled = updates.enabled;
+    if (updates.connectionStatus !== undefined) mergedUpdates.connectionStatus = updates.connectionStatus;
+    if (updates.lastConnectionAt !== undefined) mergedUpdates.lastConnectionAt = updates.lastConnectionAt;
+    
+    if (updates.settings !== undefined) {
+      const existingSettings = existing.settings || {};
+      const newSettings = updates.settings || {};
+      mergedUpdates.settings = deepMerge(existingSettings, newSettings);
+    }
+    
+    if (Object.keys(mergedUpdates).length === 0) {
+      return existing;
+    }
+    
     const result = await this.db.update(this.schema.platformConfig)
-      .set(updates)
+      .set(mergedUpdates)
       .where(eq(this.schema.platformConfig.id, existing.id))
       .returning();
     return result[0];
