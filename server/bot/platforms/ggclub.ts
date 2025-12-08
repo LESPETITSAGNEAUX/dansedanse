@@ -51,39 +51,47 @@ const IS_WINDOWS = process.platform === 'win32';
 const IS_REPLIT = process.env.REPL_ID !== undefined;
 
 async function loadNativeModules(): Promise<void> {
+  logger.info("GGClubAdapter", "Chargement modules natifs", {
+    platform: process.platform,
+    isWindows: IS_WINDOWS,
+    isReplit: IS_REPLIT,
+  });
+
   // Tesseract.js - compatible tous OS
   try {
     Tesseract = await import("tesseract.js");
-    console.log("✓ tesseract.js loaded");
+    logger.info("GGClubAdapter", "✓ tesseract.js chargé");
   } catch (e) {
-    console.warn("⚠ tesseract.js not available (OK sur Replit):", (e as Error).message);
+    logger.warning("GGClubAdapter", "⚠ tesseract.js non disponible", { error: String(e) });
   }
 
   // Modules natifs Windows uniquement
   if (IS_WINDOWS && !IS_REPLIT) {
     try {
       screenshotDesktop = (await import("screenshot-desktop")).default;
-      console.log("✓ screenshot-desktop loaded (Windows)");
+      logger.info("GGClubAdapter", "✓ screenshot-desktop chargé (Windows)");
     } catch (e) {
-      console.warn("⚠ screenshot-desktop not available:", (e as Error).message);
+      logger.error("GGClubAdapter", "❌ screenshot-desktop ÉCHEC", { error: String(e) });
     }
 
     try {
       robot = (await import("robotjs")).default;
-      console.log("✓ robotjs loaded (Windows)");
+      logger.info("GGClubAdapter", "✓ robotjs chargé (Windows)");
     } catch (e) {
-      console.warn("⚠ robotjs not available:", (e as Error).message);
+      logger.error("GGClubAdapter", "❌ robotjs ÉCHEC", { error: String(e) });
     }
 
     try {
       windowManager = await import("node-window-manager");
-      console.log("✓ node-window-manager loaded (Windows)");
+      logger.info("GGClubAdapter", "✓ node-window-manager chargé (Windows)");
     } catch (e) {
-      console.warn("⚠ node-window-manager not available:", (e as Error).message);
+      logger.error("GGClubAdapter", "❌ node-window-manager ÉCHEC - DÉTECTION TABLES IMPOSSIBLE", { 
+        error: String(e),
+        solution: "Vérifiez que node-window-manager est installé : npm install node-window-manager"
+      });
     }
   } else {
-    console.log("ℹ Mode serveur Linux/Replit - modules natifs Windows désactivés");
-    console.log("  → Pour capture d'écran, déployez en local Windows (voir DEPLOIEMENT_LOCAL.md)");
+    logger.info("GGClubAdapter", "ℹ Mode serveur Linux/Replit - modules natifs Windows désactivés");
   }
 }
 
@@ -504,13 +512,25 @@ export class GGClubAdapter extends PlatformAdapter {
       isMinimized: boolean;
     }> = [];
 
+    logger.debug("GGClubAdapter", "Scan des fenêtres Windows", {
+      windowManagerAvailable: !!windowManager,
+      platform: process.platform,
+      isReplit: IS_REPLIT,
+    });
+
     if (windowManager) {
       try {
         const windows = windowManager.windowManager.getWindows();
         const activeWindow = windowManager.windowManager.getActiveWindow();
+        
+        logger.debug("GGClubAdapter", `Nombre total de fenêtres : ${windows.length}`);
 
         for (const win of windows) {
           const title = win.getTitle();
+          
+          // Log toutes les fenêtres pour debug
+          logger.debug("GGClubAdapter", "Fenêtre détectée", { title });
+          
           if (title && (
             title.includes("GGClub") || 
             title.includes("GGPoker") || 
@@ -529,25 +549,30 @@ export class GGClubAdapter extends PlatformAdapter {
               isActive: activeWindow && activeWindow.id === win.id,
               isMinimized: bounds.width === 0 && bounds.height === 0,
             });
+            
+            logger.info("GGClubAdapter", "✅ Table GGClub détectée", {
+              handle: win.id,
+              title,
+              dimensions: `${bounds.width}x${bounds.height}`,
+            });
           }
         }
       } catch (error) {
-        console.error("Error scanning windows:", error);
+        logger.error("GGClubAdapter", "Erreur scan windows", { error: String(error) });
       }
+    } else {
+      logger.warning("GGClubAdapter", "❌ node-window-manager NON disponible - modules natifs non chargés");
     }
 
-    // If no real windows are found, return the mock table
+    // Si aucune fenêtre réelle détectée, logger l'erreur
     if (results.length === 0) {
-      results.push({
-        handle: 1001,
-        title: "GGClub - NL50 - Table 1 (Simulation)",
-        x: 0,
-        y: 0,
-        width: 880,
-        height: 600,
-        isActive: true,
-        isMinimized: false,
+      logger.warning("GGClubAdapter", "❌ Aucune table GGClub détectée", {
+        windowManagerAvailable: !!windowManager,
+        platform: process.platform,
+        suggestion: "Vérifiez que GGClub est ouvert avec une table active",
       });
+    } else {
+      logger.session("GGClubAdapter", `✅ ${results.length} table(s) détectée(s)`);
     }
 
     return results;
