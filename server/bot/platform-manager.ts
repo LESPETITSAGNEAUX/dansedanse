@@ -17,6 +17,7 @@ import { getGtoAdapter, HandContext } from "./gto-engine";
 import { storage } from "../storage";
 import { getTaskScheduler } from "./task-scheduler";
 import { getSafeModeManager } from "./safe-mode";
+import { logger } from "../logger";
 
 export interface PlatformManagerConfig {
   platformName: string;
@@ -61,6 +62,11 @@ export class PlatformManager extends EventEmitter {
   }
 
   async initialize(config: PlatformManagerConfig): Promise<boolean> {
+    logger.session("PlatformManager", "Tentative de connexion", { 
+      platform: config.platformName,
+      username: config.credentials.username 
+    });
+
     this.config = config;
     this.status = "connecting";
     this.emit("statusChange", this.status);
@@ -68,9 +74,15 @@ export class PlatformManager extends EventEmitter {
     const adapter = createPlatformAdapter(config.platformName);
     if (!adapter) {
       this.status = "error";
-      this.emit("error", { message: `Platform ${config.platformName} not supported` });
+      const errorMsg = `Platform ${config.platformName} non supportée`;
+      logger.error("PlatformManager", errorMsg, { 
+        supportedPlatforms: getSupportedPlatforms() 
+      });
+      this.emit("error", { message: errorMsg });
       return false;
     }
+
+    logger.info("PlatformManager", "Adaptateur créé", { platform: config.platformName });
 
     this.adapter = adapter;
     this.setupAdapterListeners();
@@ -82,10 +94,15 @@ export class PlatformManager extends EventEmitter {
       maxReconnectAttempts: config.maxReconnectAttempts,
     };
 
+    logger.debug("PlatformManager", "Tentative de connexion à la plateforme...");
     const connected = await this.adapter.connect(connectionConfig);
 
     if (connected) {
       this.status = "running";
+      logger.session("PlatformManager", `✅ CONNECTÉ à ${config.platformName}`, { 
+        username: config.credentials.username 
+      });
+      
       this.startPolling();
       this.emit("statusChange", this.status);
 
@@ -99,6 +116,7 @@ export class PlatformManager extends EventEmitter {
     }
 
     this.status = "error";
+    logger.error("PlatformManager", "❌ Échec de connexion", { platform: config.platformName });
     this.emit("statusChange", this.status);
     return false;
   }
@@ -564,12 +582,19 @@ export class PlatformManager extends EventEmitter {
   }
 
   private async scanForNewTables(): Promise<void> {
-    if (!this.adapter || this.status !== "running") return;
+    if (!this.adapter || this.status !== "running") {
+      logger.debug("PlatformManager", "Scan tables ignoré", { 
+        hasAdapter: !!this.adapter, 
+        status: this.status 
+      });
+      return;
+    }
 
     try {
+      logger.debug("PlatformManager", "🔍 Scan des fenêtres de poker...");
       await this.adapter.detectTableWindows();
     } catch (error) {
-      console.error("Error scanning for tables:", error);
+      logger.error("PlatformManager", "Erreur scan tables", { error: String(error) });
     }
   }
 

@@ -242,8 +242,13 @@ export async function registerRoutes(
 
   app.post("/api/session/start", async (req, res) => {
     try {
+      const { logger } = await import("./logger");
+      
+      logger.session("SessionManager", "🚀 Démarrage session demandé");
+
       const existingSession = await storage.getActiveBotSession();
       if (existingSession) {
+        logger.warning("SessionManager", "Session déjà active", { sessionId: existingSession.id });
         return res.status(400).json({ error: "Une session est déjà active" });
       }
 
@@ -251,6 +256,8 @@ export async function registerRoutes(
         status: "running",
         startedAt: new Date(),
       });
+
+      logger.session("SessionManager", "✅ Session créée", { sessionId: session.id });
 
       tableManager.setSessionId(session.id);
 
@@ -271,7 +278,8 @@ export async function registerRoutes(
 
       res.json({ success: true, session });
     } catch (error: any) {
-      console.error("Erreur démarrage session:", error);
+      const { logger } = await import("./logger");
+      logger.error("SessionManager", "Erreur démarrage session", { error: String(error) });
       res.status(500).json({ error: error.message });
     }
   });
@@ -831,6 +839,27 @@ export async function registerRoutes(
       const limit = parseInt(req.query.limit as string) || 50;
       const logs = await storage.getRecentActionLogs(limit);
       res.json({ logs });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/logs/files", async (req, res) => {
+    try {
+      const { logger } = await import("./logger");
+      const lines = parseInt(req.query.lines as string) || 100;
+      const logs = logger.getRecentLogs(lines);
+      res.json({ logs, count: logs.length });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/logs/session", async (req, res) => {
+    try {
+      const { logger } = await import("./logger");
+      const logs = logger.getSessionLogs();
+      res.json({ logs, count: logs.length });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

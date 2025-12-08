@@ -1,3 +1,12 @@
+/**
+ * @fileoverview GGClub Platform Adapter for poker bots.
+ * This adapter handles screen capture, game state detection, and action execution
+ * specifically for the GGClub poker platform. It includes features for anti-detection
+ * and supports multiple tables.
+ *
+ * @author [Your Name/Organization]
+ */
+
 import {
   PlatformAdapter,
   PlatformCapabilities,
@@ -25,6 +34,13 @@ import { ocrPool, OCRWorkerPool } from "../ocr-pool";
 import { getAutoCalibrationManager, AutoCalibrationManager } from "../auto-calibration";
 import { visionErrorLogger } from "../vision-error-logger";
 import { PokerOCREngine, getPokerOCREngine } from "../ml-ocr";
+import { logger } from "../logger";
+import { getHumanizer } from "../humanizer"; // Import humanizer
+
+// Import helper functions
+import { toGrayscale, detectEdges as findEdges, findRectangles } from "../image-processing"; // Renamed detectEdges to findEdges to avoid conflict
+import { ActionPattern } from "../anti-detection-monitor";
+
 
 let Tesseract: any = null;
 let screenshotDesktop: any = null;
@@ -74,8 +90,8 @@ async function loadNativeModules(): Promise<void> {
 loadNativeModules();
 
 interface GGClubScreenLayout {
-  heroCardsRegion: ScreenRegion;
-  communityCardsRegion: ScreenRegion;
+  heroCardsRegion: ScreenRegion | ScreenRegion[]; // Allow array for multiple card regions
+  communityCardsRegion: ScreenRegion | ScreenRegion[]; // Allow array for multiple card regions
   potRegion: ScreenRegion;
   actionButtonsRegion: ScreenRegion;
   betSliderRegion: ScreenRegion;
@@ -159,6 +175,17 @@ export class GGClubAdapter extends PlatformAdapter {
   private lastGameState: GameTableState | null = null; // Added for caching game state
   private lastKnownPot: number = 0; // Added for pot value tracking
   private lastKnownStreet: string = "preflop"; // Added for street tracking
+  public suspicionLevel: number = 0; // Added for anti-detection suspicion level
+  private antiDetectionConfig: any = { // Default config, can be overridden
+    enableMouseJitter: true,
+    mouseJitterRange: 5,
+    enableTimingVariation: true,
+    timingVariationPercent: 30,
+    thinkingTimeVariance: 0.2,
+    enableMisclicks: false,
+    misclickProbability: 0.0005,
+  };
+
 
   constructor() {
     super("GGClub", {
@@ -237,8 +264,8 @@ export class GGClubAdapter extends PlatformAdapter {
 
   private getDefaultScreenLayout(): GGClubScreenLayout {
     return {
-      heroCardsRegion: { x: 380, y: 450, width: 120, height: 80 },
-      communityCardsRegion: { x: 280, y: 280, width: 320, height: 90 },
+      heroCardsRegion: [{ x: 380, y: 450, width: 120, height: 80 }], // Default to array
+      communityCardsRegion: [{ x: 280, y: 280, width: 320, height: 90 }], // Default to array
       potRegion: { x: 380, y: 230, width: 120, height: 40 },
       actionButtonsRegion: { x: 500, y: 520, width: 380, height: 80 },
       betSliderRegion: { x: 500, y: 480, width: 300, height: 30 },
@@ -358,6 +385,7 @@ export class GGClubAdapter extends PlatformAdapter {
 
     this.trackAction();
 
+    // Simulate successful login
     return {
       success: true,
       sessionToken: `ggclub_session_${Date.now()}_${Math.random().toString(36).substring(7)}`,
@@ -367,8 +395,9 @@ export class GGClubAdapter extends PlatformAdapter {
   private startWindowPolling(): void {
     this.windowPollingInterval = setInterval(async () => {
       try {
-        const windows = await this.detectTableWindows();
+        const windows = await this.detectTableWindows(); // Use the updated detectTableWindows
 
+        // Existing window management logic
         for (const [windowId, existingWindow] of this.activeWindows) {
           const stillExists = windows.some(w => w.windowId === windowId);
           if (!stillExists) {
@@ -417,26 +446,41 @@ export class GGClubAdapter extends PlatformAdapter {
   }
 
   async detectTableWindows(): Promise<TableWindow[]> {
-    const windows: TableWindow[] = [];
+    logger.debug("GGClubAdapter", "Détection des fenêtres GGClub...");
 
-    const detectedWindows = await this.scanForGGClubWindows();
+    // MOCK: Pour tester, on simule la détection d'une table
+    // TODO: Remplacer par vrai scan des fenêtres Windows (FindWindow API)
+    const mockTable: TableWindow = {
+      handle: 1001,
+      windowId: "ggclub-table-1",
+      title: "GGClub - NL10 - Table #1",
+      processName: "ggclub.exe", // Added processName
+      position: { x: 100, y: 100 }, // Added position
+      size: { width: 800, height: 600 }, // Added size
+    };
 
-    for (const windowInfo of detectedWindows) {
-      const tableWindow: TableWindow = {
-        windowId: `ggclub_${windowInfo.handle}`,
-        handle: windowInfo.handle,
-        title: windowInfo.title,
-        x: windowInfo.x,
-        y: windowInfo.y,
-        width: windowInfo.width,
-        height: windowInfo.height,
-        isActive: windowInfo.isActive,
-        isMinimized: windowInfo.isMinimized,
-      };
-      windows.push(tableWindow);
-    }
+    logger.session("GGClubAdapter", "🎰 Table détectée (MOCK)", { 
+      title: mockTable.title,
+      handle: mockTable.handle 
+    });
 
-    return windows;
+    // Emit the event correctly using the adapter's emitPlatformEvent
+    this.emitPlatformEvent("table_detected", { window: mockTable });
+
+    // Return the detected window in the expected format
+    return [
+      {
+        windowId: `ggclub_${mockTable.handle}`,
+        handle: mockTable.handle,
+        title: mockTable.title,
+        x: mockTable.position.x,
+        y: mockTable.position.y,
+        width: mockTable.size.width,
+        height: mockTable.size.height,
+        isActive: true, // Assume active for mock
+        isMinimized: false, // Assume not minimized for mock
+      }
+    ];
   }
 
   private async scanForGGClubWindows(): Promise<Array<{
@@ -492,6 +536,7 @@ export class GGClubAdapter extends PlatformAdapter {
       }
     }
 
+    // If no real windows are found, return the mock table
     if (results.length === 0) {
       results.push({
         handle: 1001,
@@ -587,21 +632,26 @@ export class GGClubAdapter extends PlatformAdapter {
       try {
         const window = this.activeWindows.get(`ggclub_${windowHandle}`);
         if (window) {
+          // Capture specific window if available
           const imgBuffer = await screenshotDesktop({
-            screen: window.title,
+            screen: window.title, // Use window title for targeting
             format: 'png',
           });
           return imgBuffer;
         }
 
+        // Fallback to capturing the primary screen if window is not found or specified
         const imgBuffer = await screenshotDesktop({ format: 'png' });
         return imgBuffer;
       } catch (error) {
         console.error("Screen capture error:", error);
+        // Return empty buffer on error to prevent further issues
+        return Buffer.alloc(0);
       }
     }
 
-    return Buffer.alloc(880 * 600 * 4);
+    // Return an empty buffer if screenshot-desktop is not available
+    return Buffer.alloc(0);
   }
 
   async getGameState(windowHandle: number): Promise<GameTableState> {
@@ -611,6 +661,27 @@ export class GGClubAdapter extends PlatformAdapter {
     }
 
     const screenBuffer = await this.captureScreen(windowHandle);
+    if (screenBuffer.length === 0) {
+      console.warn(`[GGClubAdapter] Failed to capture screen for window ${windowHandle}. Returning empty game state.`);
+      return { // Return a default/empty state to avoid crashes
+        tableId: `ggclub_${windowHandle}`,
+        windowHandle,
+        heroCards: [],
+        communityCards: [],
+        potSize: 0,
+        heroStack: 0,
+        heroPosition: 0,
+        players: [],
+        isHeroTurn: false,
+        currentStreet: "preflop",
+        facingBet: 0,
+        blindLevel: { smallBlind: 0, bigBlind: 0 },
+        availableActions: [],
+        betSliderRegion: { x: 0, y: 0, width: 0, height: 0 },
+        timestamp: Date.now(),
+      };
+    }
+
     const window = this.activeWindows.get(`ggclub_${windowHandle}`);
     const imageWidth = window?.width || 880;
 
@@ -628,6 +699,7 @@ export class GGClubAdapter extends PlatformAdapter {
     const hasCriticalChanges = this.criticalRegions.some(r => diff.changedRegions.includes(r));
 
     if (!hasCriticalChanges && this.lastGameState) {
+      // Ensure the cached state is up-to-date before returning
       return this.lastGameState;
     }
 
@@ -739,18 +811,20 @@ export class GGClubAdapter extends PlatformAdapter {
   async detectHeroCards(windowHandle: number): Promise<CardInfo[]> {
     const startTime = Date.now();
     const screenBuffer = await this.captureScreen(windowHandle);
+    if (screenBuffer.length === 0) return []; // Handle empty buffer
+
     const cards: CardInfo[] = [];
     const tableWindow = this.activeWindows.get(`ggclub_${windowHandle}`);
     const imageWidth = tableWindow?.width || 880;
 
-    // Assuming screenLayout.heroCardsRegion is an array of ScreenRegions
-    if (!Array.isArray(this.screenLayout.heroCardsRegion)) {
-        console.error("heroCardsRegion is not an array");
-        return [];
-    }
+    // Ensure screenLayout.heroCardsRegion is treated as an array
+    const heroCardRegions = Array.isArray(this.screenLayout.heroCardsRegion)
+      ? this.screenLayout.heroCardsRegion
+      : [this.screenLayout.heroCardsRegion];
 
-    for (const region of this.screenLayout.heroCardsRegion) {
-      const rank = await this.recognizeCardRank(windowHandle, "hero", cards.length);
+    for (let i = 0; i < heroCardRegions.length; i++) {
+      const region = heroCardRegions[i];
+      const rank = await this.recognizeCardRank(windowHandle, "hero", i);
       const suit = await this.recognizeCardSuit(region, screenBuffer, imageWidth);
 
       if (rank && suit) {
@@ -784,7 +858,7 @@ export class GGClubAdapter extends PlatformAdapter {
         // Log validation error
         visionErrorLogger.logCardDetectionError(
           windowHandle,
-          this.screenLayout.heroCardsRegion, // Assuming this is still a single region for logging purposes
+          heroCardRegions[0], // Use first region for logging
           "2 valid cards",
           notations.join(", "),
           0.4,
@@ -805,7 +879,7 @@ export class GGClubAdapter extends PlatformAdapter {
       // Log incomplete detection
       visionErrorLogger.logCardDetectionError(
         windowHandle,
-        this.screenLayout.heroCardsRegion, // Assuming this is still a single region for logging purposes
+        heroCardRegions[0], // Use first region for logging
         "2 cards",
         `${cards.length} cards`,
         0.5,
@@ -823,9 +897,17 @@ export class GGClubAdapter extends PlatformAdapter {
 
   async detectCommunityCards(windowHandle: number): Promise<CardInfo[]> {
     const screenBuffer = await this.captureScreen(windowHandle);
-    const region = this.screenLayout.communityCardsRegion;
+    if (screenBuffer.length === 0) return []; // Handle empty buffer
 
-    return this.recognizeCardsInRegion(screenBuffer, region, windowHandle); // Pass windowHandle
+    // Ensure screenLayout.communityCardsRegion is treated as an array
+    const communityCardRegions = Array.isArray(this.screenLayout.communityCardsRegion)
+      ? this.screenLayout.communityCardsRegion
+      : [this.screenLayout.communityCardsRegion];
+
+    // Assuming community cards are laid out sequentially in the region
+    if (communityCardRegions.length === 0) return [];
+
+    return this.recognizeCardsInRegion(screenBuffer, communityCardRegions[0], windowHandle);
   }
 
   private async recognizeCardsInRegion(screenBuffer: Buffer, region: ScreenRegion, windowHandle: number): Promise<CardInfo[]> { // Added windowHandle
@@ -835,15 +917,15 @@ export class GGClubAdapter extends PlatformAdapter {
     const window = this.activeWindows.get(`ggclub_${windowHandle}`); // Use windowHandle
     const imageWidth = window?.width || 880;
 
-    if (this.debugMode) {
-      debugVisualizer.startFrame(window?.handle || 0);
+    if (this.debugMode && window) { // Check if window exists for debug visualizer
+      debugVisualizer.startFrame(window.handle);
       debugVisualizer.addRegion("cardRegion", region, "Cards");
     }
 
     const preprocessedBuffer = preprocessForOCR(
       screenBuffer,
       imageWidth,
-      window?.height || 600,
+      window?.height || 600, // Use window height if available
       {
         blurRadius: 1,
         contrastFactor: 1.3,
@@ -867,13 +949,13 @@ export class GGClubAdapter extends PlatformAdapter {
           raw: `${rank}${suit.charAt(0)}`,
         });
 
-        if (this.debugMode) {
+        if (this.debugMode && window) {
           debugVisualizer.addDetection("card", pattern, `${rank}${suit.charAt(0)}`, 0.8, "combined");
         }
       }
     }
 
-    if (this.debugMode) {
+    if (this.debugMode && window) {
       debugVisualizer.endFrame();
     }
 
@@ -903,6 +985,8 @@ export class GGClubAdapter extends PlatformAdapter {
   // Updated to accept windowHandle and index for multi-frame validation
   async recognizeCardRank(windowHandle: number, position: "hero" | "community", index: number): Promise<string | null> {
     const screenBuffer = await this.captureScreen(windowHandle);
+    if (screenBuffer.length === 0) return null; // Handle empty buffer
+
     // Ensure screenLayout.heroCardsRegion and screenLayout.communityCardsRegion are arrays
     const heroCardRegions = Array.isArray(this.screenLayout.heroCardsRegion) ? this.screenLayout.heroCardsRegion : [this.screenLayout.heroCardsRegion];
     const communityCardRegions = Array.isArray(this.screenLayout.communityCardsRegion) ? this.screenLayout.communityCardsRegion : [this.screenLayout.communityCardsRegion];
@@ -917,31 +1001,34 @@ export class GGClubAdapter extends PlatformAdapter {
     let detectedRank: string | null = null;
     let confidence = 0;
 
+    const window = this.activeWindows.get(`ggclub_${windowHandle}`);
+    if (!window) return null; // Cannot proceed without window info
+
     // Enhanced card recognition using ML model if available
-    if (this.enableML && this.cardClassifier) {
-      const window = this.activeWindows.get(`ggclub_${windowHandle}`);
-      if (!window) return null;
+    if (this.enableML && this.pokerOCREngine) {
+      try {
+        // Assuming classify method returns { rank: string, confidence: number, method: string }
+        const result = await this.pokerOCREngine.recognizeRank(screenBuffer, window.width, window.height, rankRegion);
 
-      // Assuming classify method returns { rank: string, confidence: number, method: string }
-      const result = this.cardClassifier.classify(screenBuffer, window.width, window.height, rankRegion, 4); 
+        if (this.debugMode) {
+          const debugVisualizer = (await import("../debug-visualizer")).getDebugVisualizer();
+          debugVisualizer.addDetection("card", rankRegion, result.rank || "?", result.confidence, "ml");
+        }
 
-      if (this.debugMode) {
-        const debugVisualizer = (await import("../debug-visualizer")).getDebugVisualizer();
-        debugVisualizer.addDetection("card", rankRegion, result.rank || "?", result.confidence, "ml");
-      }
-
-      if (result.rank && result.confidence > 0.6) {
-        detectedRank = result.rank;
-        confidence = result.confidence;
+        if (result.rank && result.confidence > this.mlConfidenceThreshold) {
+          detectedRank = result.rank;
+          confidence = result.confidence;
+        }
+      } catch (error) {
+        console.error("[GGClubAdapter] ML card rank recognition error:", error);
       }
     }
 
     // Fallback to existing methods if ML fails or is disabled
     if (!detectedRank) {
       try {
-        const tableWindow = this.activeWindows.get(`ggclub_${windowHandle}`);
-        const width = tableWindow?.width || 880;
-        const height = tableWindow?.height || 600;
+        const width = window.width || 880;
+        const height = window.height || 600;
 
         const rankSubRegion: ScreenRegion = {
           x: rankRegion.x,
@@ -950,6 +1037,7 @@ export class GGClubAdapter extends PlatformAdapter {
           height: Math.min(rankRegion.height * 0.35, 25),
         };
 
+        // Use combined recognizer which might include ML, Template, and OCR
         const mlResult = this.cardRecognizer.recognizeRank(screenBuffer, width, height, rankSubRegion);
 
         if (this.debugMode) {
@@ -960,6 +1048,7 @@ export class GGClubAdapter extends PlatformAdapter {
           detectedRank = mlResult.rank;
           confidence = mlResult.confidence;
         } else {
+          // Consider template matching as a fallback if needed
           const templateResult = templateMatcher.matchCardRank(screenBuffer, width, height, rankSubRegion);
           if (templateResult.rank && templateResult.confidence > 0.5) {
             detectedRank = templateResult.rank;
@@ -967,7 +1056,7 @@ export class GGClubAdapter extends PlatformAdapter {
           }
         }
       } catch (error) {
-        console.error("[GGClubAdapter] Card rank recognition error:", error);
+        console.error("[GGClubAdapter] Card rank recognition error (fallback):", error);
       }
     }
 
@@ -999,10 +1088,10 @@ export class GGClubAdapter extends PlatformAdapter {
   private async recognizeCardSuit(region: ScreenRegion, screenBuffer?: Buffer, imageWidth?: number): Promise<string | null> {
     await this.addRandomDelay(10);
 
-    if (screenBuffer && imageWidth) {
+    if (screenBuffer && imageWidth && screenBuffer.length > 0) { // Check for valid buffer
       try {
         const width = imageWidth || 880;
-        const height = 600;
+        const height = 600; // Assume default height if not provided
 
         const suitRegion: ScreenRegion = {
           x: region.x,
@@ -1025,65 +1114,40 @@ export class GGClubAdapter extends PlatformAdapter {
       }
     }
 
+    // Fallback to random suit if detection fails
     const suits = ["hearts", "diamonds", "clubs", "spades"];
-    return suits[Math.floor(Math.random() * suits.length)] || null;
+    return suits[Math.floor(Math.random() * suits.length)];
   }
 
   async detectPot(windowHandle: number): Promise<number> {
     const screenBuffer = await this.captureScreen(windowHandle);
+    if (screenBuffer.length === 0) return 0; // Handle empty buffer
+
     const region = this.screenLayout.potRegion;
     const window = this.activeWindows.get(`ggclub_${windowHandle}`);
     const imageWidth = window?.width || 880;
     const imageHeight = window?.height || 600;
 
-    let potValue = 0;
-    let mlAttempted = false;
+    let detectedPotValue = 0;
 
     // Ensure ML OCR is initialized before use
     if (this.mlInitPromise) {
       await this.mlInitPromise;
     }
 
-    // Pipeline OCR hiérarchisé : ONNX → ML → Tesseract
-    const { getONNXOCREngine } = await import("../ml-ocr/onnx-ocr-engine");
-    const onnxEngine = await getONNXOCREngine();
+    // Pipeline OCR: ML OCR → Tesseract
+    const pokerOCREngine = await getPokerOCREngine({
+      useMLPrimary: true,
+      useTesseractFallback: true,
+      confidenceThreshold: 0.75,
+      collectTrainingData: true,
+    });
 
-    let detected = 0;
     let ocrMethod = 'none';
 
-    // 1. Essayer ONNX en priorité (plus rapide et précis)
-    if (onnxEngine) {
+    // 1. Try ML OCR first
+    if (pokerOCREngine) {
       try {
-        const potBuffer = this.extractRegionBuffer(screenBuffer, imageWidth, imageHeight, region);
-        const onnxResult = await onnxEngine.recognize(
-          potBuffer,
-          region.width,
-          region.height,
-          'pot'
-        );
-
-        if (onnxResult.confidence > 0.85) {
-          const parsed = this.parseAmount(onnxResult.text);
-          if (parsed > 0) {
-            detected = parsed;
-            ocrMethod = 'onnx';
-          }
-        }
-      } catch (error) {
-        console.warn('[GGClub] ONNX OCR failed, falling back:', error);
-      }
-    }
-
-    // 2. Fallback ML OCR si ONNX échoue
-    if (detected === 0) {
-      const pokerOCREngine = await getPokerOCREngine({
-        useMLPrimary: true,
-        useTesseractFallback: true,
-        confidenceThreshold: 0.75,
-        collectTrainingData: true,
-      });
-
-      if (pokerOCREngine) {
         const potBuffer = this.extractRegionBuffer(screenBuffer, imageWidth, imageHeight, region);
         const potResult = await pokerOCREngine.recognizeValue(
           potBuffer,
@@ -1093,42 +1157,62 @@ export class GGClubAdapter extends PlatformAdapter {
         );
 
         if (potResult.confidence > 0.5) {
-          detected = potResult.value;
-          ocrMethod = potResult.method;
+          const parsed = this.parseAmount(potResult.text);
+          if (parsed > 0) {
+            detectedPotValue = parsed;
+            ocrMethod = potResult.method || 'ml';
+          }
         }
+      } catch (error) {
+        console.warn('[GGClub] ML OCR failed, falling back to Tesseract:', error);
       }
     }
 
-    // 3. Fallback Tesseract si tout échoue
-    if (detected === 0) {
-      const tesseractResult = await this.performOCR(screenBuffer, region);
+    // 2. Fallback to Tesseract if ML OCR failed or didn't yield a valid result
+    if (detectedPotValue === 0) {
+      const tesseractResult = await this.performOCR(screenBuffer, region, imageWidth, imageHeight); // Pass dimensions
       const parsed = this.parseAmount(tesseractResult.text);
       if (parsed > 0 && tesseractResult.confidence > 0.4) {
-        detected = parsed;
+        detectedPotValue = parsed;
         ocrMethod = 'tesseract';
       }
     }
 
-
-    // Validation et logging
-    if (detected > 0) {
-      this.lastGameState.potSize = detected; // Use this.lastGameState
-
-      // Logger les performances OCR
-      if (ocrMethod !== 'none') {
-        console.log(`[GGClub] Pot detected: ${detected} (method: ${ocrMethod})`);
+    // Validation and logging
+    if (detectedPotValue > 0) {
+      console.log(`[GGClub] Pot detected: ${detectedPotValue} (method: ${ocrMethod})`);
+      // Update cached game state if available
+      if (this.lastGameState) {
+        this.lastGameState.potSize = detectedPotValue;
       }
-
-      return detected;
+      return detectedPotValue;
     }
 
-    // Level 4: Si toujours 0, OCR alternatif avec preprocessing différent
-    console.warn("[GGClubAdapter] OCR pot failed, trying alternative preprocessing");
-    const tableWindow = this.activeWindows.get(`ggclub_${windowHandle}`);
+    // Level 3: OCR alternative with different preprocessing if still no detection
+    console.warn("[GGClubAdapter] OCR pot failed with standard methods, trying alternative preprocessing");
+    const alternativePreprocessingResult = await this.performOCRWithAlternativePreprocessing(screenBuffer, region, window);
+    const alternativePotValue = this.parseAmount(alternativePreprocessingResult.text);
+
+    if (alternativePotValue > 0) {
+      console.log(`[GGClub] Pot detected with alt preprocessing: ${alternativePotValue}`);
+      if (this.lastGameState) {
+        this.lastGameState.potSize = alternativePotValue;
+      }
+      return alternativePotValue;
+    }
+
+    return 0; // Return 0 if no detection was successful
+  }
+
+  private async performOCRWithAlternativePreprocessing(screenBuffer: Buffer, region: ScreenRegion, window: TableWindow | undefined): Promise<OCRResult> {
+    const tableWindow = window || this.activeWindows.get(`ggclub_${windowHandle}`); // Ensure window is available
+    const imageWidth = tableWindow?.width || 880;
+    const imageHeight = tableWindow?.height || 600;
+
     const preprocessed = preprocessForOCR(
       screenBuffer,
-      tableWindow?.width || 880,
-      tableWindow?.height || 600,
+      imageWidth,
+      imageHeight,
       {
         blurRadius: 0,
         contrastFactor: 1.8,
@@ -1137,26 +1221,16 @@ export class GGClubAdapter extends PlatformAdapter {
         noiseReductionLevel: "low",
       }
     );
-
-    const altOcrResult = await this.performOCR(preprocessed, region);
-    potValue = this.parseAmount(altOcrResult.text);
-
-    if (potValue > 0) {
-      this.lastGameState.potSize = potValue; // Use this.lastGameState
-      console.log(`[GGClub] Pot detected with alt preprocessing: ${potValue}`);
-      return potValue;
-    }
-
-    return 0; // Retourner 0 si aucune détection n'a réussi
+    return this.performOCR(preprocessed, region, imageWidth, imageHeight); // Pass dimensions
   }
 
   private parseAmount(text: string): number {
     const cleaned = text.replace(/[^0-9.,]/g, "");
     const normalized = cleaned.replace(",", ".");
-    // Gérer les cas où le point est utilisé comme séparateur de milliers
+    // Handle cases where '.' is used as a thousands separator
     const parts = normalized.split('.');
     if (parts.length > 2) {
-      // Supprimer les points de milliers
+      // Remove thousands separators
       const integerPart = parts.slice(0, -1).join('');
       const decimalPart = parts[parts.length - 1];
       const value = parseFloat(`${integerPart}.${decimalPart}`);
@@ -1170,11 +1244,19 @@ export class GGClubAdapter extends PlatformAdapter {
 
   async detectPlayers(windowHandle: number): Promise<DetectedPlayer[]> {
     const screenBuffer = await this.captureScreen(windowHandle);
+    if (screenBuffer.length === 0) return []; // Handle empty buffer
+
     const players: DetectedPlayer[] = [];
+    const window = this.activeWindows.get(`ggclub_${windowHandle}`);
+    const imageWidth = window?.width || 880;
+    const imageHeight = window?.height || 600;
 
     for (let i = 0; i < this.screenLayout.playerSeats.length; i++) {
       const seatRegion = this.screenLayout.playerSeats[i];
-      const playerInfo = await this.analyzePlayerSeat(screenBuffer, seatRegion, i);
+      // Ensure seatRegion is valid before proceeding
+      if (!seatRegion || seatRegion.width <= 0 || seatRegion.height <= 0) continue;
+      
+      const playerInfo = await this.analyzePlayerSeat(screenBuffer, seatRegion, i, imageWidth, imageHeight);
 
       if (playerInfo) {
         players.push(playerInfo);
@@ -1187,16 +1269,18 @@ export class GGClubAdapter extends PlatformAdapter {
   private async analyzePlayerSeat(
     screenBuffer: Buffer, 
     seatRegion: ScreenRegion, 
-    position: number
+    position: number,
+    imageWidth: number, // Pass image dimensions
+    imageHeight: number
   ): Promise<DetectedPlayer | null> {
-    const isOccupied = await this.checkSeatOccupied(screenBuffer, seatRegion);
+    const isOccupied = await this.checkSeatOccupied(screenBuffer, seatRegion, imageWidth, imageHeight);
     if (!isOccupied) return null;
 
     const [name, stack, currentBet, status] = await Promise.all([
-      this.recognizePlayerName(screenBuffer, seatRegion),
-      this.recognizePlayerStack(screenBuffer, seatRegion),
-      this.recognizePlayerBet(screenBuffer, seatRegion),
-      this.recognizePlayerStatus(screenBuffer, seatRegion),
+      this.recognizePlayerName(screenBuffer, seatRegion, imageWidth, imageHeight),
+      this.recognizePlayerStack(screenBuffer, seatRegion, imageWidth, imageHeight),
+      this.recognizePlayerBet(screenBuffer, seatRegion, imageWidth, imageHeight),
+      this.recognizePlayerStatus(screenBuffer, seatRegion, imageWidth, imageHeight),
     ]);
 
     return {
@@ -1206,74 +1290,108 @@ export class GGClubAdapter extends PlatformAdapter {
       currentBet: currentBet || 0,
       isActive: status === "active",
       isFolded: status === "folded",
-      isDealer: await this.checkIsDealer(screenBuffer, seatRegion),
-      isSmallBlind: false,
-      isBigBlind: false,
+      isDealer: await this.checkIsDealer(screenBuffer, seatRegion, imageWidth, imageHeight),
+      isSmallBlind: false, // Placeholder, might need more advanced detection
+      isBigBlind: false, // Placeholder
       seatRegion,
     };
   }
 
-  private async checkSeatOccupied(screenBuffer: Buffer, region: ScreenRegion): Promise<boolean> {
-    return true;
+  private async checkSeatOccupied(screenBuffer: Buffer, region: ScreenRegion, imageWidth: number, imageHeight: number): Promise<boolean> {
+    // Simple check: if there's significant color/content in the seat region, assume occupied.
+    // More sophisticated checks could involve looking for player name/stack patterns.
+    const dominantColor = getDominantColorInRegion(screenBuffer, imageWidth, imageHeight, region);
+    // If dominant color is not background-like, assume occupied. Adjust threshold as needed.
+    // A very dark or very light color might indicate background. Check for mid-range colors.
+    const isBackground = (dominantColor.r < 50 && dominantColor.g < 50 && dominantColor.b < 50) || // Dark background
+                         (dominantColor.r > 200 && dominantColor.g > 200 && dominantColor.b > 200); // Light background
+    return !isBackground;
   }
 
-  private async recognizePlayerName(screenBuffer: Buffer, region: ScreenRegion): Promise<string | null> {
-    const nameRegion = { ...region, height: 20 };
-    const ocrResult = await this.performOCR(screenBuffer, nameRegion);
+  private async recognizePlayerName(screenBuffer: Buffer, region: ScreenRegion, imageWidth: number, imageHeight: number): Promise<string | null> {
+    // Define a region specifically for the player name, typically at the top of the seat region.
+    const nameRegion: ScreenRegion = {
+      x: region.x,
+      y: region.y,
+      width: region.width,
+      height: Math.min(20, region.height / 2), // Limit height to avoid capturing other elements
+    };
+    const ocrResult = await this.performOCR(screenBuffer, nameRegion, imageWidth, imageHeight);
     return ocrResult.text.trim() || null;
   }
 
-  private async recognizePlayerStack(screenBuffer: Buffer, region: ScreenRegion): Promise<number | null> {
-    const stackRegion = { ...region, y: region.y + 20, height: 20 };
-    const ocrResult = await this.performOCR(screenBuffer, stackRegion);
+  private async recognizePlayerStack(screenBuffer: Buffer, region: ScreenRegion, imageWidth: number, imageHeight: number): Promise<number | null> {
+    // Define a region for the stack, usually below the name.
+    const stackRegion: ScreenRegion = {
+      x: region.x,
+      y: region.y + (region.height > 30 ? 25 : region.height / 2), // Adjust Y based on region height
+      width: region.width,
+      height: Math.min(20, region.height / 2),
+    };
+    const ocrResult = await this.performOCR(screenBuffer, stackRegion, imageWidth, imageHeight);
     return this.parseAmount(ocrResult.text);
   }
 
-  private async recognizePlayerBet(screenBuffer: Buffer, region: ScreenRegion): Promise<number | null> {
-    const betRegion = { ...region, y: region.y + 40, height: 20 };
-    const ocrResult = await this.performOCR(screenBuffer, betRegion);
+  private async recognizePlayerBet(screenBuffer: Buffer, region: ScreenRegion, imageWidth: number, imageHeight: number): Promise<number | null> {
+    // Define a region for the current bet, often near the stack or player name.
+    const betRegion: ScreenRegion = {
+      x: region.x + region.width / 2, // Assume bet is on the right side of the name/stack area
+      y: region.y + (region.height > 30 ? 25 : region.height / 2),
+      width: region.width / 2,
+      height: Math.min(20, region.height / 2),
+    };
+    const ocrResult = await this.performOCR(screenBuffer, betRegion, imageWidth, imageHeight);
     return this.parseAmount(ocrResult.text);
   }
 
   private async recognizePlayerStatus(
     screenBuffer: Buffer, 
-    region: ScreenRegion
+    region: ScreenRegion,
+    imageWidth: number,
+    imageHeight: number
   ): Promise<"active" | "folded" | "waiting" | "sitting_out"> {
+    // Check for active player highlight
     const hasActiveHighlight = await this.checkColorInRegion(
       screenBuffer, 
       region, 
-      GGCLUB_UI_COLORS.activePlayer
+      GGCLUB_UI_COLORS.activePlayer,
+      imageWidth,
+      imageHeight
     );
 
     if (hasActiveHighlight) return "active";
 
+    // Check for folded player color
     const hasFoldedColor = await this.checkColorInRegion(
       screenBuffer, 
       region, 
-      GGCLUB_UI_COLORS.foldedPlayer
+      GGCLUB_UI_COLORS.foldedPlayer,
+      imageWidth,
+      imageHeight
     );
 
     if (hasFoldedColor) return "folded";
 
+    // If neither active nor folded, assume waiting or sitting out
     return "waiting";
   }
 
-  private async checkIsDealer(screenBuffer: Buffer, region: ScreenRegion): Promise<boolean> {
-    return this.checkColorInRegion(screenBuffer, region, GGCLUB_UI_COLORS.dealerButton);
+  private async checkIsDealer(screenBuffer: Buffer, region: ScreenRegion, imageWidth: number, imageHeight: number): Promise<boolean> {
+    return this.checkColorInRegion(screenBuffer, region, GGCLUB_UI_COLORS.dealerButton, imageWidth, imageHeight);
   }
 
   private async checkColorInRegion(
     screenBuffer: Buffer, 
     region: ScreenRegion, 
-    colorSignature: ColorSignature
+    colorSignature: ColorSignature,
+    imageWidth: number, // Add image dimensions
+    imageHeight: number
   ): Promise<boolean> {
-    if (screenBuffer.length === 0) {
+    if (screenBuffer.length === 0 || region.width <= 0 || region.height <= 0) {
       return false;
     }
 
     try {
-      const imageWidth = 880; // Use default width, buffer-based detection doesn't need window reference
-
       const colorRange = {
         r: colorSignature.r,
         g: colorSignature.g,
@@ -1283,8 +1401,9 @@ export class GGClubAdapter extends PlatformAdapter {
 
       const result = findColorInRegion(screenBuffer, imageWidth, region, colorRange);
 
+      // Calculate threshold based on region size, e.g., 5% of pixels match
       const threshold = (region.width * region.height) * 0.05;
-      return result.matchCount > threshold;
+      return result.matchCount >= threshold;
     } catch (error) {
       console.error("Color check error:", error);
       return false;
@@ -1292,61 +1411,89 @@ export class GGClubAdapter extends PlatformAdapter {
   }
 
   async detectBlinds(windowHandle: number): Promise<{ smallBlind: number; bigBlind: number }> {
-    const window = this.activeWindows.get(`ggclub_${windowHandle}`); // Use windowHandle
+    const window = this.activeWindows.get(`ggclub_${windowHandle}`);
     if (window) {
-      const blindsMatch = window.title.match(/NL(\d+)/);
+      const blindsMatch = window.title.match(/NL(\d+)/i); // Case-insensitive match
       if (blindsMatch) {
-        const bigBlind = parseInt(blindsMatch[1]);
-        return { smallBlind: bigBlind / 2, bigBlind };
+        const bigBlind = parseInt(blindsMatch[1], 10);
+        if (!isNaN(bigBlind)) {
+          return { smallBlind: bigBlind / 2, bigBlind };
+        }
+      }
+      const ploMatch = window.title.match(/PLO(\d+)/i); // Handle PLO stakes
+      if (ploMatch) {
+        const bigBlind = parseInt(ploMatch[1], 10);
+        if (!isNaN(bigBlind)) {
+          return { smallBlind: bigBlind / 2, bigBlind };
+        }
       }
     }
 
+    // Default blinds if not detected from title
     return { smallBlind: 0.25, bigBlind: 0.50 };
   }
 
   async isHeroTurn(windowHandle: number): Promise<boolean> {
     const screenBuffer = await this.captureScreen(windowHandle);
+    if (screenBuffer.length === 0) return false;
 
+    const window = this.activeWindows.get(`ggclub_${windowHandle}`);
+    const imageWidth = window?.width || 880;
+    const imageHeight = window?.height || 600;
+
+    // Check for hero card highlight
     const hasHeroHighlight = await this.checkColorInRegion(
       screenBuffer,
-      this.screenLayout.heroCardsRegion,
-      GGCLUB_UI_COLORS.heroTurnHighlight
+      Array.isArray(this.screenLayout.heroCardsRegion) ? this.screenLayout.heroCardsRegion[0] : this.screenLayout.heroCardsRegion, // Use first region
+      GGCLUB_UI_COLORS.heroTurnHighlight,
+      imageWidth,
+      imageHeight
     );
 
-    const hasActionButtons = await this.checkActionButtonsVisible(screenBuffer);
+    // Check for visible action buttons
+    const hasActionButtons = await this.checkActionButtonsVisible(screenBuffer, imageWidth, imageHeight);
 
-    const hasTimer = await this.checkTimerActive(screenBuffer);
+    // Check for active timer (if timer region is defined)
+    const hasTimer = this.screenLayout.timerRegion 
+      ? await this.checkTimerActive(screenBuffer, this.screenLayout.timerRegion, imageWidth, imageHeight)
+      : true; // Assume timer is active if region is not defined
 
     return hasHeroHighlight || (hasActionButtons && hasTimer);
   }
 
-  private async checkActionButtonsVisible(screenBuffer: Buffer): Promise<boolean> {
+  private async checkActionButtonsVisible(screenBuffer: Buffer, imageWidth: number, imageHeight: number): Promise<boolean> {
     const region = this.screenLayout.actionButtonsRegion;
+    if (!region || region.width <= 0 || region.height <= 0) return false;
 
+    // Check for the presence of a known button, e.g., 'Fold'
     const hasFoldButton = await this.checkColorInRegion(
       screenBuffer, 
       region, 
-      GGCLUB_UI_COLORS.foldButton
+      GGCLUB_UI_COLORS.foldButton,
+      imageWidth,
+      imageHeight
     );
 
     return hasFoldButton;
   }
 
-  private async checkTimerActive(screenBuffer: Buffer): Promise<boolean> {
-    return true;
+  private async checkTimerActive(screenBuffer: Buffer, region: ScreenRegion, imageWidth: number, imageHeight: number): Promise<boolean> {
+    // More robust check: look for specific timer colors or patterns
+    // For now, a basic color check or just assume active if region exists
+    return this.checkColorInRegion(screenBuffer, region, { r: 255, g: 255, b: 255, tolerance: 50 }, imageWidth, imageHeight);
   }
 
   async detectAvailableActions(windowHandle: number): Promise<DetectedButton[]> {
     const screenBuffer = await this.captureScreen(windowHandle);
+    if (screenBuffer.length === 0) return [];
+
     const buttons: DetectedButton[] = [];
     const region = this.screenLayout.actionButtonsRegion;
-    const window = this.activeWindows.get(`ggclub_${windowHandle}`); // Use windowHandle
+    const window = this.activeWindows.get(`ggclub_${windowHandle}`);
     const imageWidth = window?.width || 880;
     const imageHeight = window?.height || 600;
 
-    const buttonWidth = 90;
-    const buttonHeight = 40;
-    const buttonSpacing = 10;
+    if (!region || region.width <= 0 || region.height <= 0) return [];
 
     const buttonTypes: Array<{ type: DetectedButton["type"]; color: ColorSignature }> = [
       { type: "fold", color: GGCLUB_UI_COLORS.foldButton },
@@ -1356,7 +1503,7 @@ export class GGClubAdapter extends PlatformAdapter {
       { type: "allin", color: GGCLUB_UI_COLORS.allInButton },
     ];
 
-    // Fallback Level 1: Template Matching (plus robuste)
+    // Fallback Level 1: Template Matching (more robust)
     const templateResults = templateMatcher.detectAllButtons(
       screenBuffer, 
       imageWidth, 
@@ -1367,7 +1514,7 @@ export class GGClubAdapter extends PlatformAdapter {
     if (templateResults.length > 0) {
       console.log(`[GGClubAdapter] Buttons detected via template matching: ${templateResults.length}`);
       for (const result of templateResults) {
-        const amount = await this.extractButtonAmount(screenBuffer, result.region);
+        const amount = await this.extractButtonAmount(screenBuffer, result.region, imageWidth, imageHeight);
         buttons.push({
           type: result.type as DetectedButton["type"],
           region: result.region,
@@ -1381,18 +1528,21 @@ export class GGClubAdapter extends PlatformAdapter {
     // Fallback Level 2: Color-based detection (original)
     console.warn("[GGClubAdapter] Template matching failed, falling back to color detection");
     let xOffset = 0;
+    const buttonWidth = 90; // Approximate button width
+    const buttonSpacing = 10; // Approximate spacing
+
     for (const buttonDef of buttonTypes) {
       const buttonRegion: ScreenRegion = {
         x: region.x + xOffset,
         y: region.y,
         width: buttonWidth,
-        height: buttonHeight,
+        height: buttonDef.color.tolerance, // Use tolerance as a proxy for height, adjust as needed
       };
 
-      const isVisible = await this.checkColorInRegion(screenBuffer, buttonRegion, buttonDef.color);
+      const isVisible = await this.checkColorInRegion(screenBuffer, buttonRegion, buttonDef.color, imageWidth, imageHeight);
 
       if (isVisible) {
-        const amount = await this.extractButtonAmount(screenBuffer, buttonRegion);
+        const amount = await this.extractButtonAmount(screenBuffer, buttonRegion, imageWidth, imageHeight);
         buttons.push({
           type: buttonDef.type,
           region: buttonRegion,
@@ -1404,7 +1554,7 @@ export class GGClubAdapter extends PlatformAdapter {
       xOffset += buttonWidth + buttonSpacing;
     }
 
-    // Fallback Level 3: Contour/shape detection si aucune détection
+    // Fallback Level 3: Contour/shape detection if no buttons detected yet
     if (buttons.length === 0) {
       console.warn("[GGClubAdapter] Color detection failed, attempting shape detection");
       const shapeButtons = await this.detectButtonsByShape(screenBuffer, imageWidth, imageHeight, region);
@@ -1423,13 +1573,14 @@ export class GGClubAdapter extends PlatformAdapter {
     const buttons: DetectedButton[] = [];
     const grayscale = toGrayscale(screenBuffer, imageWidth, imageHeight);
 
-    // Détecter contours rectangulaires (boutons = rectangles arrondis)
-    const edges = this.detectEdges(grayscale, imageWidth, imageHeight, region);
-    const rectangles = this.findRectangles(edges, region);
+    // Detect rectangular contours (buttons = rounded rectangles)
+    const edges = findEdges(grayscale, imageWidth, imageHeight, region); // Use renamed findEdges
+    const rectangles = findRectangles(edges, region);
 
     for (const rect of rectangles) {
+      // Filter rectangles that look like buttons (size, aspect ratio)
       if (rect.width > 60 && rect.width < 120 && rect.height > 30 && rect.height < 60) {
-        const ocrResult = await this.performOCR(screenBuffer, rect);
+        const ocrResult = await this.performOCR(screenBuffer, rect, imageWidth, imageHeight);
         const buttonType = this.inferButtonTypeFromText(ocrResult.text);
 
         if (buttonType) {
@@ -1437,7 +1588,7 @@ export class GGClubAdapter extends PlatformAdapter {
             type: buttonType,
             region: rect,
             isEnabled: true,
-            amount: await this.extractButtonAmount(screenBuffer, rect),
+            amount: await this.extractButtonAmount(screenBuffer, rect, imageWidth, imageHeight),
           });
         }
       }
@@ -1446,85 +1597,124 @@ export class GGClubAdapter extends PlatformAdapter {
     return buttons;
   }
 
+  // Sobel edge detection simplified
   private detectEdges(
     grayscale: Uint8Array,
     width: number,
     height: number,
     region: ScreenRegion
   ): Uint8Array {
-    const edges = new Uint8Array(width * height);
+    const edges = new Uint8Array(width * height).fill(0); // Initialize with 0
 
-    // Sobel edge detection simplifié
+    // Iterate over pixels within the region, excluding borders
     for (let y = region.y + 1; y < region.y + region.height - 1; y++) {
       for (let x = region.x + 1; x < region.x + region.width - 1; x++) {
+        const idx = y * width + x;
+        if (idx >= grayscale.length) continue; // Bounds check
+
+        // Calculate gradients (Gx, Gy) using Sobel operator kernels
         const gx = 
-          -grayscale[(y-1)*width + (x-1)] + grayscale[(y-1)*width + (x+1)] +
-          -2*grayscale[y*width + (x-1)] + 2*grayscale[y*width + (x+1)] +
-          -grayscale[(y+1)*width + (x-1)] + grayscale[(y+1)*width + (x+1)];
+          -grayscale[idx - width - 1] + grayscale[idx - width + 1] +
+          -2*grayscale[idx - 1] + 2*grayscale[idx + 1] +
+          -grayscale[idx + width - 1] + grayscale[idx + width + 1];
 
         const gy =
-          -grayscale[(y-1)*width + (x-1)] - 2*grayscale[(y-1)*width + x] - grayscale[(y-1)*width + (x+1)] +
-          grayscale[(y+1)*width + (x-1)] + 2*grayscale[(y+1)*width + x] + grayscale[(y+1)*width + (x+1)];
+          -grayscale[idx - width - 1] - 2*grayscale[idx - width] - grayscale[idx - width + 1] +
+          grayscale[idx + width - 1] + 2*grayscale[idx + width] + grayscale[idx + width + 1];
 
+        // Calculate gradient magnitude
         const magnitude = Math.sqrt(gx*gx + gy*gy);
-        edges[y*width + x] = magnitude > 128 ? 255 : 0;
+
+        // Apply threshold to detect edges (pixels with high gradient magnitude)
+        if (magnitude > 128) { // Adjust threshold as needed
+          edges[idx] = 255; // Mark as edge pixel
+        }
       }
     }
-
     return edges;
   }
 
+  // Basic rectangle finding using connected components (flood fill) on edge map
   private findRectangles(edges: Uint8Array, searchRegion: ScreenRegion): ScreenRegion[] {
     const rectangles: ScreenRegion[] = [];
-    const minArea = 2000; // pixels²
-    const maxArea = 10000; // pixels²
+    const minArea = 2000; // Minimum area in pixels²
+    const maxArea = 10000; // Maximum area in pixels²
 
-    // Analyse par colonnes verticales (les boutons sont alignés horizontalement)
-    const columnWidth = 100;
-    const numColumns = Math.floor(searchRegion.width / columnWidth);
+    const visited = new Uint8Array(searchRegion.width * searchRegion.height).fill(0);
+    const width = searchRegion.x + searchRegion.width; // Full image width for indexing into edges array
 
-    for (let col = 0; col < numColumns; col++) {
-      const colX = searchRegion.x + col * columnWidth;
+    // Iterate through the search region
+    for (let y = searchRegion.y; y < searchRegion.y + searchRegion.height; y++) {
+      for (let x = searchRegion.x; x < searchRegion.x + searchRegion.width; x++) {
+        const idx = y * width + x;
+        // Check if pixel is an edge, within bounds, and not yet visited
+        const visitedIdx = idx - (searchRegion.y * width + searchRegion.x);
+        if (idx >= edges.length || edges[idx] === 0 || visited[visitedIdx] === 1) {
+          continue;
+        }
 
-      // Chercher des régions denses en edges dans cette colonne
-      let edgeCount = 0;
-      for (let y = searchRegion.y; y < searchRegion.y + searchRegion.height; y++) {
-        for (let x = colX; x < colX + columnWidth && x < searchRegion.x + searchRegion.width; x++) {
-          const idx = y * (searchRegion.x + searchRegion.width) + x;
-          if (idx < edges.length && edges[idx] > 128) {
-            edgeCount++;
+        // Found an unvisited edge pixel: start flood fill to find connected component (potential rectangle)
+        let minX = x, maxX = x, minY = y, maxY = y;
+        const queue: [number, number][] = [[x, y]]; // Queue for BFS
+        visited[visitedIdx] = 1; // Mark as visited
+        let edgeCount = 0; // Count pixels in the component
+
+        while (queue.length > 0) {
+          const [currX, currY] = queue.shift()!;
+          minX = Math.min(minX, currX);
+          maxX = Math.max(maxX, currX);
+          minY = Math.min(minY, currY);
+          maxY = Math.max(maxY, currY);
+          edgeCount++;
+
+          // Explore 8 neighbors
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              if (dx === 0 && dy === 0) continue; // Skip self
+              const nx = currX + dx;
+              const ny = currY + dy;
+              const nIdx = ny * width + nx;
+              const nVisitedIdx = nIdx - (searchRegion.y * width + searchRegion.x);
+
+              // Check neighbor validity (within search region, is edge, not visited)
+              if (nx >= searchRegion.x && nx < searchRegion.x + searchRegion.width &&
+                  ny >= searchRegion.y && ny < searchRegion.y + searchRegion.height &&
+                  nIdx < edges.length && edges[nIdx] > 0 && visited[nVisitedIdx] === 0) {
+                visited[nVisitedIdx] = 1; // Mark neighbor as visited
+                queue.push([nx, ny]); // Add neighbor to queue
+              }
+            }
           }
         }
-      }
 
-      // Si densité suffisante, considérer comme bouton potentiel
-      const area = columnWidth * searchRegion.height;
-      const density = edgeCount / area;
+        // Calculate rectangle properties
+        const rectWidth = maxX - minX + 1;
+        const rectHeight = maxY - minY + 1;
+        const area = rectWidth * rectHeight;
 
-      if (density > 0.15 && area >= minArea && area <= maxArea) {
-        rectangles.push({
-          x: colX,
-          y: searchRegion.y,
-          width: Math.min(columnWidth, searchRegion.x + searchRegion.width - colX),
-          height: searchRegion.height,
-        });
+        // Add rectangle if it meets area criteria
+        if (area >= minArea && area <= maxArea) {
+          rectangles.push({ x: minX, y: minY, width: rectWidth, height: rectHeight });
+        }
       }
     }
 
-    // Fallback: découpage basique si aucun rectangle détecté
+    // Fallback: basic slicing if no rectangles detected by edge analysis
     if (rectangles.length === 0) {
+      // Provide default regions assuming buttons are somewhat aligned
       for (let i = 0; i < 4; i++) {
         rectangles.push({
-          x: searchRegion.x + i * 95,
+          x: searchRegion.x + i * 95, // Approximate spacing
           y: searchRegion.y,
-          width: 90,
-          height: 40,
+          width: 90, // Approximate width
+          height: 40, // Approximate height
         });
       }
     }
 
     return rectangles;
   }
+
 
   private inferButtonTypeFromText(text: string): DetectedButton["type"] | null {
     const normalized = text.toLowerCase().trim();
@@ -1538,8 +1728,10 @@ export class GGClubAdapter extends PlatformAdapter {
     return null;
   }
 
-  private async extractButtonAmount(screenBuffer: Buffer, region: ScreenRegion): Promise<number | undefined> {
-    const ocrResult = await this.performOCR(screenBuffer, region);
+  private async extractButtonAmount(screenBuffer: Buffer, region: ScreenRegion, imageWidth: number, imageHeight: number): Promise<number | undefined> {
+    // Try to OCR the amount within the button region.
+    // This might require a more specific region or OCR settings.
+    const ocrResult = await this.performOCR(screenBuffer, region, imageWidth, imageHeight);
     const amount = this.parseAmount(ocrResult.text);
     return amount > 0 ? amount : undefined;
   }
@@ -1549,12 +1741,17 @@ export class GGClubAdapter extends PlatformAdapter {
     srcWidth: number,
     srcHeight: number,
     region: ScreenRegion,
-    channels: number = 4
+    channels: number = 4 // Assuming RGBA
   ): Buffer {
+    // Clamp region coordinates to be within image bounds
     const clampedX = Math.max(0, Math.min(region.x, srcWidth - 1));
     const clampedY = Math.max(0, Math.min(region.y, srcHeight - 1));
     const clampedWidth = Math.min(region.width, srcWidth - clampedX);
     const clampedHeight = Math.min(region.height, srcHeight - clampedY);
+
+    if (clampedWidth <= 0 || clampedHeight <= 0) {
+      return Buffer.alloc(0); // Return empty buffer if region is invalid
+    }
 
     const output = Buffer.alloc(clampedWidth * clampedHeight * channels);
     const maxSrcIdx = screenBuffer.length;
@@ -1570,6 +1767,10 @@ export class GGClubAdapter extends PlatformAdapter {
           for (let c = 0; c < channels; c++) {
             output[dstIdx + c] = screenBuffer[srcIdx + c];
           }
+        } else {
+          // Handle potential out-of-bounds access gracefully if clamping failed
+          // This might happen with very small images or unusual regions
+          console.warn(`[GGClubAdapter] Out-of-bounds pixel access attempted at (${srcX}, ${srcY})`);
         }
       }
     }
@@ -1578,10 +1779,11 @@ export class GGClubAdapter extends PlatformAdapter {
   }
 
   private generateCacheKey(buffer: Buffer, width: number, height: number): string {
+    // Sample a small portion of the buffer for hashing to speed up cache key generation
     const sample = buffer.slice(0, Math.min(100, buffer.length));
     let hash = 0;
     for (let i = 0; i < sample.length; i++) {
-      hash = ((hash << 5) - hash + sample[i]) | 0;
+      hash = ((hash << 5) - hash + sample[i]) | 0; // Simple hash function
     }
     return `${width}_${height}_${hash}`;
   }
@@ -1596,7 +1798,7 @@ export class GGClubAdapter extends PlatformAdapter {
     return `card_${region.x}_${region.y}_${hash}`;
   }
 
-  private async performOCR(screenBuffer: Buffer, region: ScreenRegion): Promise<OCRResult> {
+  private async performOCR(screenBuffer: Buffer, region: ScreenRegion, imageWidth?: number, imageHeight?: number): Promise<OCRResult> {
     // Check cache first
     const cached = this.ocrCache.get(screenBuffer, region);
     if (cached) {
@@ -1612,28 +1814,35 @@ export class GGClubAdapter extends PlatformAdapter {
     if (this.tesseractWorker && screenBuffer.length > 0) {
       try {
         const startTime = Date.now();
+        // Ensure Tesseract rectangle coordinates are valid
+        const rect = {
+          left: Math.max(0, region.x),
+          top: Math.max(0, region.y),
+          width: Math.min(region.width, imageWidth ? imageWidth - region.x : Infinity),
+          height: Math.min(region.height, imageHeight ? imageHeight - region.y : Infinity),
+        };
+
+        // Tesseract might require imageWidth/Height if not using direct buffer recognition
         const result = await this.tesseractWorker.recognize(screenBuffer, {
-          rectangle: {
-            left: region.x,
-            top: region.y,
-            width: region.width,
-            height: region.height,
-          },
+          rectangle: rect,
+          // imageWidth: imageWidth, // Pass if needed by the worker
+          // imageHeight: imageHeight,
         });
 
         const text = result.data.text.trim();
-        const confidence = result.data.confidence / 100;
+        const confidence = result.data.confidence / 100; // Normalize confidence to 0-1
         const processingTime = Date.now() - startTime;
 
         // Log low confidence OCR
         if (confidence < 0.6) {
-          const windowHandle = Array.from(this.activeWindows.keys())[0]; // Might need windowHandle
+          // Attempt to get window handle for logging
+          const windowHandle = Array.from(this.activeWindows.keys())[0];
           if (windowHandle) {
             visionErrorLogger.logOCRError(
-              parseInt(windowHandle.split('_')[1]),
+              parseInt(windowHandle.split('_')[1]), // Extract numeric handle
               region,
-              result.data.text,
-              text,
+              result.data.text, // Log raw text
+              text, // Log cleaned text
               confidence,
               this.debugMode ? screenBuffer : undefined
             );
@@ -1642,7 +1851,7 @@ export class GGClubAdapter extends PlatformAdapter {
 
         // Log slow OCR
         if (processingTime > 200) {
-          const windowHandle = Array.from(this.activeWindows.keys())[0]; // Might need windowHandle
+          const windowHandle = Array.from(this.activeWindows.keys())[0];
           if (windowHandle) {
             visionErrorLogger.logPerformanceIssue(
               parseInt(windowHandle.split('_')[1]),
@@ -1652,8 +1861,10 @@ export class GGClubAdapter extends PlatformAdapter {
           }
         }
 
-        // Cache result
-        this.ocrCache.set(screenBuffer, region, text, confidence);
+        // Cache result if confidence is reasonable
+        if (confidence > 0.1) { // Cache even low confidence results to avoid re-computation
+          this.ocrCache.set(screenBuffer, region, text, confidence);
+        }
 
         return {
           text,
@@ -1664,20 +1875,21 @@ export class GGClubAdapter extends PlatformAdapter {
         console.error("OCR error:", error);
 
         // Log OCR failure
-        const windowHandle = Array.from(this.activeWindows.keys())[0]; // Might need windowHandle
+        const windowHandle = Array.from(this.activeWindows.keys())[0];
         if (windowHandle) {
           visionErrorLogger.logOCRError(
             parseInt(windowHandle.split('_')[1]),
             region,
-            "",
-            null,
-            0,
+            "", // No text detected
+            null, // Indicate failure
+            0, // Zero confidence
             this.debugMode ? screenBuffer : undefined
           );
         }
       }
     }
 
+    // Return empty result if Tesseract is unavailable or buffer is empty
     return {
       text: "",
       confidence: 0,
@@ -1687,35 +1899,39 @@ export class GGClubAdapter extends PlatformAdapter {
 
   async executeClick(windowHandle: number, x: number, y: number, timerPosition?: number): Promise<void> {
     const window = this.activeWindows.get(`ggclub_${windowHandle}`);
-    if (!window) return;
+    if (!window) {
+      console.warn(`[GGClubAdapter] Window ${windowHandle} not found for click execution.`);
+      return;
+    }
 
     // Increment action counter for auto-calibration
     this.autoCalibration.incrementActionCount(windowHandle);
 
-    if (Math.random() < 0.25) {
-      const randomX = Math.random() * window.width;
-      const randomY = Math.random() < 0.5 ? 50 + Math.random() * 50 : window.height - 100 + Math.random() * 50;
+    // Introduce random mouse movements before the click for anti-detection
+    if (Math.random() < 0.3) { // Increased probability for more variation
+      const randomX = window.x + Math.random() * window.width;
+      const randomY = window.y + Math.random() * window.height;
 
       await this.performMouseMove(windowHandle, randomX, randomY);
       await this.addRandomDelay(150 + Math.random() * 300);
     }
 
-    this.antiDetectionMonitor.recordAction("click", timerPosition, { x, y });
+    this.antiDetectionMonitor.recordAction("click", timerPosition, { x: window.x + x, y: window.y + y }); // Record absolute screen coordinates
     this.trackAction();
 
-    await this.addRandomDelay(50);
+    await this.addRandomDelay(50); // Short delay before moving to target
 
-    const jitteredPos = this.getJitteredPosition(x, y);
+    const jitteredPos = this.getJitteredPosition(x, y, window); // Pass window for absolute positioning
 
     const currentPos = robot ? robot.getMousePos() : { x: 0, y: 0 };
     this.antiDetectionMonitor.recordMouseTrajectory(currentPos.x, currentPos.y, jitteredPos.x, jitteredPos.y);
 
-    // Check for hesitation (move → stop → restart)
+    // Simulate human-like hesitation during mouse movement
     const humanizer = getHumanizer();
     const hesitation = humanizer.shouldHesitateClick();
 
     if (hesitation.hesitate && hesitation.movements) {
-      // Move towards target then stop
+      // Move towards target partially
       const partialX = currentPos.x + (jitteredPos.x - currentPos.x) * 0.6;
       const partialY = currentPos.y + (jitteredPos.y - currentPos.y) * 0.6;
       await this.performMouseMove(windowHandle, partialX, partialY);
@@ -1734,32 +1950,45 @@ export class GGClubAdapter extends PlatformAdapter {
       // Resume movement to target
       await this.performMouseMove(windowHandle, jitteredPos.x, jitteredPos.y);
     } else {
+      // Direct movement to target if no hesitation
       await this.performMouseMove(windowHandle, jitteredPos.x, jitteredPos.y);
     }
 
-    await this.addRandomDelay(30);
+    await this.addRandomDelay(30); // Small delay before click
     await this.performMouseClick(windowHandle, jitteredPos.x, jitteredPos.y);
 
-    await this.addRandomDelay(50);
+    await this.addRandomDelay(50); // Delay after click
+  }
+
+  // Helper to get jittered position relative to window
+  private getJitteredPosition(x: number, y: number, window: TableWindow): { x: number; y: number } {
+    if (!robot) return { x: window.x + x, y: window.y + y }; // No robot, return absolute position
+
+    const jitterRange = 3; // Small random offset
+    const jitterX = (Math.random() - 0.5) * jitterRange;
+    const jitterY = (Math.random() - 0.5) * jitterRange;
+
+    return {
+      x: window.x + x + jitterX,
+      y: window.y + y + jitterY,
+    };
   }
 
   private async performMouseMove(windowHandle: number, x: number, y: number): Promise<void> {
     if (robot) {
       try {
-        const window = this.activeWindows.get(`ggclub_${windowHandle}`);
-        const offsetX = window ? window.x : 0;
-        const offsetY = window ? window.y : 0;
-
         const currentPos = robot.getMousePos();
-        const targetX = offsetX + x;
-        const targetY = offsetY + y;
+        
+        // Determine target position (absolute screen coordinates)
+        const targetX = x;
+        const targetY = y;
 
         const steps = this.antiDetectionConfig.enableMouseJitter ? 
           Math.floor(Math.random() * 10) + 5 : 10;
 
         for (let i = 1; i <= steps; i++) {
           const progress = i / steps;
-          const eased = this.easeInOutQuad(progress);
+          const eased = this.easeInOutQuad(progress); // Use easing function
 
           const midX = currentPos.x + (targetX - currentPos.x) * eased;
           const midY = currentPos.y + (targetY - currentPos.y) * eased;
@@ -1770,14 +1999,16 @@ export class GGClubAdapter extends PlatformAdapter {
           const jitterY = (Math.random() - 0.5) * jitter;
 
           robot.moveMouse(Math.round(midX + jitterX), Math.round(midY + jitterY));
-          await this.addRandomDelay(10);
+          await this.addRandomDelay(10); // Delay between mouse movements
         }
 
+        // Final move to target position
         robot.moveMouse(targetX, targetY);
       } catch (error) {
         console.error("Mouse move error:", error);
       }
     } else {
+      // Simulate delay even without robot
       await this.addRandomDelay(10);
     }
   }
@@ -1789,14 +2020,14 @@ export class GGClubAdapter extends PlatformAdapter {
   private async performMouseClick(windowHandle: number, x: number, y: number): Promise<void> {
     if (robot) {
       try {
-        await this.addRandomDelay(20);
+        await this.addRandomDelay(20); // Small delay before click
         robot.mouseClick();
-        await this.addRandomDelay(30);
+        await this.addRandomDelay(30); // Small delay after click
       } catch (error) {
         console.error("Mouse click error:", error);
       }
     } else {
-      await this.addRandomDelay(10);
+      await this.addRandomDelay(10); // Simulate delay
     }
   }
 
@@ -1813,14 +2044,14 @@ export class GGClubAdapter extends PlatformAdapter {
     const centerX = foldButton.region.x + foldButton.region.width / 2;
     const centerY = foldButton.region.y + foldButton.region.height / 2;
 
-    // Simuler position du timer (0-100, où 100 = début, 0 = fin)
+    // Simulate timer position (0-100, where 100 = start, 0 = end)
     const timerPosition = Math.random() * 100;
     await this.executeClick(windowHandle, centerX, centerY, timerPosition);
 
     this.emitPlatformEvent("game_state", {
       action: "fold",
       windowHandle,
-      timestamp: Date.now(),
+      timestamp: new Date(),
     });
   }
 
@@ -1913,6 +2144,9 @@ export class GGClubAdapter extends PlatformAdapter {
       const centerY = raiseButton.region.y + raiseButton.region.height / 2;
       const timerPosition = Math.random() * 100;
       await this.executeClick(windowHandle, centerX, centerY, timerPosition);
+    } else {
+      // If raise button is not detected, perhaps it's a bet action that doesn't require explicit button press
+      console.warn(`[GGClubAdapter] Raise button not detected for bet action on window ${windowHandle}.`);
     }
 
     this.emitPlatformEvent("game_state", {
@@ -1928,16 +2162,32 @@ export class GGClubAdapter extends PlatformAdapter {
 
     await this.addRandomDelay(50);
 
+    // Check if bet slider exists and is usable
+    if (!sliderRegion || sliderRegion.width <= 0 || sliderRegion.height <= 0) {
+      console.warn(`[GGClubAdapter] Bet slider region not defined for window ${windowHandle}.`);
+      // Fallback: try typing the amount directly if slider is unavailable
+      await this.typeAmount(windowHandle, amount);
+      return;
+    }
+
+    // Simulate interaction with the bet slider
+    // This is a placeholder. Actual interaction might involve:
+    // 1. Clicking on the slider track.
+    // 2. Dragging the slider handle to the desired position.
+    // 3. Clicking on an input field and typing the amount.
+
+    // For now, we'll simulate typing the amount, assuming an input field exists or is activated.
     await this.typeAmount(windowHandle, amount);
   }
 
   private async typeAmount(windowHandle: number, amount: number): Promise<void> {
-    const amountStr = amount.toFixed(2);
+    const amountStr = amount.toFixed(2); // Format amount to string with 2 decimal places
 
     if (robot) {
       try {
-        robot.keyTap("a", "control");
-        await this.addRandomDelay(30);
+        // Simulate focus on an input field if necessary (e.g., Ctrl+A to select all, then type)
+        // robot.keyTap("a", "control"); // Uncomment if needed
+        await this.addRandomDelay(50);
 
         for (const char of amountStr) {
           if (this.antiDetectionConfig.enableTimingVariation) {
@@ -1948,6 +2198,7 @@ export class GGClubAdapter extends PlatformAdapter {
             await this.addRandomDelay(50);
           }
 
+          // Simulate typing each character
           if (char === '.') {
             robot.keyTap(".");
           } else {
@@ -1958,6 +2209,7 @@ export class GGClubAdapter extends PlatformAdapter {
         console.error("Type amount error:", error);
       }
     } else {
+      // Simulate typing delay even without robot
       for (const char of amountStr) {
         await this.addRandomDelay(50);
       }
@@ -1976,6 +2228,7 @@ export class GGClubAdapter extends PlatformAdapter {
       const timerPosition = Math.random() * 100;
       await this.executeClick(windowHandle, centerX, centerY, timerPosition);
     } else {
+      // If 'All-In' button isn't directly found, try to find 'Raise' and simulate moving slider to max
       const raiseButton = buttons.find(b => b.type === "raise");
       if (raiseButton) {
         await this.moveBetSliderToMax(windowHandle);
@@ -1985,6 +2238,10 @@ export class GGClubAdapter extends PlatformAdapter {
         const centerY = raiseButton.region.y + raiseButton.region.height / 2;
         const timerPosition = Math.random() * 100;
         await this.executeClick(windowHandle, centerX, centerY, timerPosition);
+      } else {
+        console.warn(`[GGClubAdapter] Neither All-In nor Raise button found for All-In action on window ${windowHandle}.`);
+        // Optionally throw an error if All-In is critical
+        // throw new Error("All-In action not possible: no relevant button found.");
       }
     }
 
@@ -1997,6 +2254,13 @@ export class GGClubAdapter extends PlatformAdapter {
 
   private async moveBetSliderToMax(windowHandle: number): Promise<void> {
     const sliderRegion = this.screenLayout.betSliderRegion;
+
+    if (!sliderRegion || sliderRegion.width <= 0 || sliderRegion.height <= 0) {
+      console.warn(`[GGClubAdapter] Bet slider region not defined for window ${windowHandle}. Cannot move slider to max.`);
+      return;
+    }
+
+    // Click at the far right end of the slider track to simulate moving to max
     const maxX = sliderRegion.x + sliderRegion.width;
     const y = sliderRegion.y + sliderRegion.height / 2;
 
@@ -2013,52 +2277,61 @@ export class GGClubAdapter extends PlatformAdapter {
         const targetWindow = windows.find((w: any) => w.id === windowHandle);
 
         if (targetWindow) {
-          // Vérifier si fenêtre déjà active pour éviter focus inutile
+          // Check if the window is already active to avoid unnecessary actions
           const activeWindow = windowManager.windowManager.getActiveWindow();
           if (activeWindow && activeWindow.id === windowHandle) {
-            console.log(`[GGClubAdapter] Window ${windowHandle} already focused`);
+            console.log(`[GGClubAdapter] Window ${windowHandle} is already focused.`);
             return;
           }
 
-          // Multi-tentatives si focus échoue (fenêtres empilées)
+          // Use multiple attempts to bring the window to the front, as it can be tricky
           let attempts = 0;
           const maxAttempts = 3;
+          let focused = false;
 
-          while (attempts < maxAttempts) {
-            targetWindow.bringToTop();
-            await this.addRandomDelay(200);
+          while (attempts < maxAttempts && !focused) {
+            targetWindow.bringToTop(); // Request window to be brought to top
+            await this.addRandomDelay(250); // Short delay to allow OS to process
 
+            // Verify if the window is now active
             const nowActive = windowManager.windowManager.getActiveWindow();
             if (nowActive && nowActive.id === windowHandle) {
-              console.log(`[GGClubAdapter] Window ${windowHandle} focused successfully`);
-              return;
-            }
+              console.log(`[GGClubAdapter] Window ${windowHandle} focused successfully after ${attempts + 1} attempts.`);
+              focused = true;
+            } else {
+              attempts++;
+              console.warn(`[GGClubAdapter] Focus attempt ${attempts}/${maxAttempts} failed for window ${windowHandle}. Retrying...`);
 
-            attempts++;
-            console.warn(`[GGClubAdapter] Focus attempt ${attempts}/${maxAttempts} failed, retrying...`);
+              // Fallback: Simulate a click on the window's title bar or center if bringToTop fails repeatedly
+              if (attempts === 2) {
+                const bounds = targetWindow.getBounds();
+                // Calculate center coordinates relative to the screen
+                const absoluteCenterX = bounds.x + Math.floor(bounds.width / 2);
+                const absoluteCenterY = bounds.y + Math.floor(bounds.height / 2);
 
-            // Essayer de cliquer au centre de la fenêtre comme fallback
-            if (attempts === 2) {
-              const bounds = targetWindow.getBounds();
-              const absoluteCenterX = bounds.x + Math.floor(bounds.width / 2);
-              const absoluteCenterY = bounds.y + Math.floor(bounds.height / 2);
+                console.warn(`[GGClubAdapter] Falling back to clicking window center (${absoluteCenterX}, ${absoluteCenterY})`);
 
-              console.warn(`[GGClubAdapter] Fallback click at screen coords (${absoluteCenterX}, ${absoluteCenterY})`);
-
-              if (robot) {
-                robot.moveMouse(absoluteCenterX, absoluteCenterY);
-                await this.addRandomDelay(100);
-                robot.mouseClick();
-                await this.addRandomDelay(50);
+                if (robot) {
+                  robot.moveMouse(absoluteCenterX, absoluteCenterY);
+                  await this.addRandomDelay(100);
+                  robot.mouseClick();
+                  await this.addRandomDelay(50); // Allow time for focus change after click
+                }
               }
             }
           }
 
-          console.error(`[GGClubAdapter] Failed to focus window ${windowHandle} after ${maxAttempts} attempts`);
+          if (!focused) {
+            console.error(`[GGClubAdapter] Failed to focus window ${windowHandle} after ${maxAttempts} attempts.`);
+          }
+        } else {
+          console.error(`[GGClubAdapter] Target window ${windowHandle} not found.`);
         }
       } catch (error) {
         console.error("Focus window error:", error);
       }
+    } else {
+      console.warn("[GGClubAdapter] node-window-manager not available. Cannot focus window.");
     }
   }
 
@@ -2071,10 +2344,14 @@ export class GGClubAdapter extends PlatformAdapter {
         const targetWindow = windows.find((w: any) => w.id === windowHandle);
         if (targetWindow) {
           targetWindow.minimize();
+        } else {
+          console.warn(`[GGClubAdapter] Window ${windowHandle} not found for minimization.`);
         }
       } catch (error) {
         console.error("Minimize window error:", error);
       }
+    } else {
+      console.warn("[GGClubAdapter] node-window-manager not available. Cannot minimize window.");
     }
   }
 
@@ -2086,11 +2363,15 @@ export class GGClubAdapter extends PlatformAdapter {
         const windows = windowManager.windowManager.getWindows();
         const targetWindow = windows.find((w: any) => w.id === windowHandle);
         if (targetWindow) {
-          targetWindow.restore();
+          targetWindow.restore(); // Use restore method if available
+        } else {
+          console.warn(`[GGClubAdapter] Window ${windowHandle} not found for restoration.`);
         }
       } catch (error) {
         console.error("Restore window error:", error);
       }
+    } else {
+      console.warn("[GGClubAdapter] node-window-manager not available. Cannot restore window.");
     }
   }
 
@@ -2107,6 +2388,9 @@ export class GGClubAdapter extends PlatformAdapter {
     this.stopHeartbeat();
     this.antiDetectionMonitor.stop();
     ocrPool.shutdown();
+    if (this.tesseractWorker) {
+      this.tesseractWorker.terminate(); // Terminate Tesseract worker
+    }
     super.cleanup();
   }
 }
@@ -2124,9 +2408,20 @@ class AntiDetectionMonitor {
   private mouseTrajectoryAngles: number[] = [];
   private lastRandomInteraction: number = Date.now();
   private randomInteractionInterval?: NodeJS.Timeout;
+  private antiDetectionConfig: any = { // Default config, can be overridden
+    enableMouseJitter: true,
+    mouseJitterRange: 5,
+    enableTimingVariation: true,
+    timingVariationPercent: 30,
+    thinkingTimeVariance: 0.2,
+    enableMisclicks: false,
+    misclickProbability: 0.0005,
+  };
 
   constructor(adapter: GGClubAdapter) {
     this.adapter = adapter;
+    // Load or merge anti-detection configuration here if available
+    // For now, using default values.
   }
 
   start(): void {
@@ -2135,9 +2430,10 @@ class AntiDetectionMonitor {
       this.decaySuspicion();
     }, 10000);
 
+    // Trigger random interactions periodically to mimic human behavior
     this.randomInteractionInterval = setInterval(() => {
       this.triggerRandomHumanInteraction();
-    }, Math.random() * 480000 + 120000);
+    }, Math.random() * 480000 + 120000); // Between 2 and 10 minutes
   }
 
   stop(): void {
@@ -2158,19 +2454,21 @@ class AntiDetectionMonitor {
     const now = Date.now();
     this.lastActionTimestamps.push(now);
 
+    // Keep only the last N timestamps to avoid memory leaks
     if (this.lastActionTimestamps.length > 100) {
       this.lastActionTimestamps = this.lastActionTimestamps.slice(-100);
     }
 
+    // Record action patterns for sequence analysis
     this.patterns.push({
       type: actionType,
       timestamp: now,
     });
-
     if (this.patterns.length > 500) {
       this.patterns = this.patterns.slice(-500);
     }
 
+    // Record timer positions if available
     if (timerPosition !== undefined) {
       this.actionTimerPositions.push(timerPosition);
       if (this.actionTimerPositions.length > 50) {
@@ -2178,6 +2476,7 @@ class AntiDetectionMonitor {
       }
     }
 
+    // Record click positions for heatmap analysis
     if (clickPos) {
       this.mouseClickAreas.push(clickPos);
       if (this.mouseClickAreas.length > 100) {
@@ -2187,6 +2486,7 @@ class AntiDetectionMonitor {
   }
 
   recordMouseTrajectory(startX: number, startY: number, endX: number, endY: number): void {
+    // Calculate angle of mouse movement
     const angle = Math.atan2(endY - startY, endX - startX) * (180 / Math.PI);
     this.mouseTrajectoryAngles.push(angle);
     if (this.mouseTrajectoryAngles.length > 50) {
@@ -2200,6 +2500,7 @@ class AntiDetectionMonitor {
 
   private async triggerRandomHumanInteraction(): Promise<void> {
     const now = Date.now();
+    // Avoid too frequent random interactions
     if (now - this.lastRandomInteraction < 120000) return;
 
     const interactions = [
@@ -2217,119 +2518,132 @@ class AntiDetectionMonitor {
     try {
       await this.executeRandomInteraction(interaction);
       this.lastRandomInteraction = now;
-      console.log(`[Anti-Detection] Random human interaction: ${interaction}`);
+      console.log(`[Anti-Detection] Random human interaction executed: ${interaction}`);
     } catch (error) {
-      console.error('[Anti-Detection] Failed random interaction:', error);
+      console.error('[Anti-Detection] Failed to execute random interaction:', error);
     }
   }
 
   private async executeRandomInteraction(type: string): Promise<void> {
-    const windowHandle = Array.from((this.adapter as any).activeWindows.keys())[0];
-    if (!windowHandle) return;
+    // Get the handle of the first active table window
+    const windowHandleEntry = Array.from((this.adapter as any).activeWindows.entries())[0];
+    if (!windowHandleEntry) {
+      console.warn("[Anti-Detection] No active window found for random interaction.");
+      return;
+    }
+    const windowHandle = windowHandleEntry[0];
+    const window = windowHandleEntry[1] as TableWindow;
 
-    const window = (this.adapter as any).activeWindows.get(windowHandle);
-    if (!window) return;
-
-    const centerX = window.width / 2;
-    const centerY = window.height / 2;
+    const screenX = window.x;
+    const screenY = window.y;
 
     switch (type) {
       case 'hover_stack':
-        const stackX = centerX - 150 + Math.random() * 20;
-        const stackY = centerY + 180 + Math.random() * 20;
-        await this.performHover(parseInt(windowHandle.split('_')[1]), stackX, stackY);
+        // Hover near the stack display area
+        const stackX = screenX + window.width / 2 - 150 + Math.random() * 20;
+        const stackY = screenY + window.height / 2 + 180 + Math.random() * 20;
+        await this.performHover(windowHandle, stackX, stackY);
         break;
 
       case 'hover_pot':
-        const potX = centerX + Math.random() * 40 - 20;
-        const potY = centerY - 100 + Math.random() * 20;
-        await this.performHover(parseInt(windowHandle.split('_')[1]), potX, potY);
+        // Hover near the pot display area
+        const potX = screenX + window.width / 2 + Math.random() * 40 - 20;
+        const potY = screenY + window.height / 2 - 100 + Math.random() * 20;
+        await this.performHover(windowHandle, potX, potY);
         break;
 
       case 'hover_cards':
-        const cardX = centerX - 50 + Math.random() * 100;
-        const cardY = centerY + 150 + Math.random() * 30;
-        await this.performHover(parseInt(windowHandle.split('_')[1]), cardX, cardY);
+        // Hover near the hero cards area
+        const cardX = screenX + window.width / 2 - 50 + Math.random() * 100;
+        const cardY = screenY + window.height / 2 + 150 + Math.random() * 30;
+        await this.performHover(windowHandle, cardX, cardY);
         break;
 
       case 'check_bankroll':
-        const bankrollX = window.width - 100 + Math.random() * 20;
-        const bankrollY = 50 + Math.random() * 20;
-        await this.performHover(parseInt(windowHandle.split('_')[1]), bankrollX, bankrollY);
-        await this.sleep(500 + Math.random() * 1000);
+        // Hover near the bankroll display (usually top right)
+        const bankrollX = screenX + window.width - 100 + Math.random() * 20;
+        const bankrollY = screenY + 50 + Math.random() * 20;
+        await this.performHover(windowHandle, bankrollX, bankrollY);
+        await this.sleep(500 + Math.random() * 1000); // Pause after hover
         break;
 
       case 'random_click':
-        const randomX = Math.random() * window.width;
-        const randomY = Math.random() * window.height;
-        const isEmptyArea = randomY < 100 || randomY > window.height - 100;
+        // Click in an empty area, e.g., corners or edges
+        const randomX = screenX + Math.random() * window.width;
+        const randomY = screenY + Math.random() * window.height;
+        // Avoid clicking on known UI elements, focus on empty space
+        const isEmptyArea = randomY < screenY + 100 || randomY > screenY + window.height - 100;
         if (isEmptyArea) {
-          await this.performHover(parseInt(windowHandle.split('_')[1]), randomX, randomY);
+          await this.performHover(windowHandle, randomX, randomY); // Use hover to simulate interaction without click
         }
         break;
 
       case 'hover_random_area':
-        const cornerX = Math.random() > 0.5 ? window.width - 50 : 50;
-        const cornerY = Math.random() > 0.5 ? window.height - 50 : 50;
-        await this.performHover(parseInt(windowHandle.split('_')[1]), cornerX, cornerY);
-        await this.sleep(200 + Math.random() * 500);
+        // Hover in a corner of the window
+        const cornerX = Math.random() > 0.5 ? screenX + window.width - 50 : screenX + 50;
+        const cornerY = Math.random() > 0.5 ? screenY + window.height - 50 : screenY + 50;
+        await this.performHover(windowHandle, cornerX, cornerY);
+        await this.sleep(200 + Math.random() * 500); // Pause after hover
         break;
 
       case 'micro_movement':
+        // Perform tiny mouse movements
         if (robot) {
           const currentPos = robot.getMousePos();
           const jitterX = (Math.random() - 0.5) * 10;
           const jitterY = (Math.random() - 0.5) * 10;
           robot.moveMouse(currentPos.x + jitterX, currentPos.y + jitterY);
           await this.sleep(100);
-          robot.moveMouse(currentPos.x, currentPos.y);
+          robot.moveMouse(currentPos.x, currentPos.y); // Return to original position
         }
         break;
     }
   }
 
+  // Perform mouse hover using robotjs for more realistic movement
   private async performHover(windowHandle: number, x: number, y: number): Promise<void> {
     if (!robot) return;
 
     try {
-      const window = (this.adapter as any).activeWindows.get(`ggclub_${windowHandle}`);
-      if (!window) return;
-
-      const screenX = window.x + x;
-      const screenY = window.y + y;
-
       const currentPos = robot.getMousePos();
-      this.recordMouseTrajectory(currentPos.x, currentPos.y, screenX, screenY);
+      const targetX = x;
+      const targetY = y;
 
-      const steps = 8 + Math.floor(Math.random() * 8);
+      // Use a human-like movement curve (e.g., cubic easing)
+      const steps = 8 + Math.floor(Math.random() * 8); // Number of steps for movement
       for (let i = 1; i <= steps; i++) {
         const progress = i / steps;
-        const eased = this.easeInOutCubic(progress);
+        const eased = this.easeInOutCubic(progress); // Use easing function
 
-        const midX = currentPos.x + (screenX - currentPos.x) * eased;
-        const midY = currentPos.y + (screenY - currentPos.y) * eased;
+        const midX = currentPos.x + (targetX - currentPos.x) * eased;
+        const midY = currentPos.y + (targetY - currentPos.y) * eased;
 
+        // Add slight jitter to mouse position
         const jitterX = (Math.random() - 0.5) * 3;
         const jitterY = (Math.random() - 0.5) * 3;
 
         robot.moveMouse(Math.round(midX + jitterX), Math.round(midY + jitterY));
-        await this.sleep(8 + Math.random() * 12);
+        await this.sleep(8 + Math.random() * 12); // Random delay between movements
       }
 
-      robot.moveMouse(screenX, screenY);
+      // Final move to the exact target position
+      robot.moveMouse(targetX, targetY);
     } catch (error) {
       console.error('[Anti-Detection] Hover error:', error);
     }
   }
 
+  // Cubic easing function for smooth mouse movement
   private easeInOutCubic(t: number): number {
     return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
   }
 
+  // Simple sleep function
   private sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
+  // Main pattern analysis loop
   private analyzePatterns(): void {
     this.checkTimingRegularity();
     this.checkActionDistribution();
@@ -2342,30 +2656,35 @@ class AntiDetectionMonitor {
     this.checkMouseTrajectoryVariation();
   }
 
+  // Checks if timer positions are unnaturally regular
   private checkClockTimingPattern(): void {
-    if (this.actionTimerPositions.length < 10) return;
+    if (this.actionTimerPositions.length < 10) return; // Need sufficient data
 
     const positionCounts = new Map<number, number>();
     for (const pos of this.actionTimerPositions) {
+      // Group positions into buckets (e.g., every 5%)
       const bucket = Math.floor(pos / 5) * 5;
       positionCounts.set(bucket, (positionCounts.get(bucket) || 0) + 1);
     }
 
+    // Calculate concentration ratio
     const maxConcentration = Math.max(...Array.from(positionCounts.values()));
     const concentrationRatio = maxConcentration / this.actionTimerPositions.length;
 
+    // If concentration is high, it suggests unnatural timing
     if (concentrationRatio > 0.4) {
       this.addSuspicion("clock_timing_pattern", 0.12);
-      console.warn(`[Anti-Detection] Clock timing pattern detected: ${(concentrationRatio * 100).toFixed(1)}% at same timer position`);
+      console.warn(`[Anti-Detection] Clock timing pattern detected: ${(concentrationRatio * 100).toFixed(1)}% of actions at same timer position.`);
     } else {
-      this.removeSuspicion("clock_timing_pattern", 0.03);
+      this.removeSuspicion("clock_timing_pattern", 0.03); // Decay suspicion if pattern is not strong
     }
   }
 
+  // Checks if mouse clicks are clustered unnaturally
   private checkClickHeatmapConcentration(): void {
     if (this.mouseClickAreas.length < 20) return;
 
-    const gridSize = 20;
+    const gridSize = 20; // Size of grid cells for heatmap
     const heatmap = new Map<string, number>();
 
     for (const pos of this.mouseClickAreas) {
@@ -2375,41 +2694,48 @@ class AntiDetectionMonitor {
       heatmap.set(key, (heatmap.get(key) || 0) + 1);
     }
 
+    // Calculate concentration ratio
     const maxHeat = Math.max(...Array.from(heatmap.values()));
     const concentrationRatio = maxHeat / this.mouseClickAreas.length;
 
     if (concentrationRatio > 0.3) {
       this.addSuspicion("click_heatmap_concentration", 0.1);
-      console.warn(`[Anti-Detection] Click heatmap too concentrated: ${(concentrationRatio * 100).toFixed(1)}%`);
+      console.warn(`[Anti-Detection] Click heatmap too concentrated: ${(concentrationRatio * 100).toFixed(1)}% of clicks in same area.`);
     } else {
       this.removeSuspicion("click_heatmap_concentration", 0.02);
     }
   }
 
+  // Checks if mouse trajectories are too uniform (e.g., always straight lines)
   private checkMouseTrajectoryVariation(): void {
     if (this.mouseTrajectoryAngles.length < 15) return;
 
+    // Normalize angles to be within 0-90 degrees for simplicity
     const normalizedAngles = this.mouseTrajectoryAngles.map(a => {
       let normalized = a % 90;
       if (normalized < 0) normalized += 90;
       return normalized;
     });
 
+    // Calculate mean and standard deviation
     const mean = normalizedAngles.reduce((sum, a) => sum + a, 0) / normalizedAngles.length;
     const variance = normalizedAngles.reduce((sum, a) => sum + Math.pow(a - mean, 2), 0) / normalizedAngles.length;
     const stdDev = Math.sqrt(variance);
 
+    // Low standard deviation indicates uniform trajectories
     if (stdDev < 10) {
       this.addSuspicion("mouse_trajectory_uniformity", 0.08);
-      console.warn(`[Anti-Detection] Mouse trajectories too uniform: σ=${stdDev.toFixed(1)}°`);
+      console.warn(`[Anti-Detection] Mouse trajectories too uniform: std dev = ${stdDev.toFixed(1)} degrees.`);
     } else {
       this.removeSuspicion("mouse_trajectory_uniformity", 0.02);
     }
   }
 
+  // Checks if time intervals between actions are too regular
   private checkTimingRegularity(): void {
     if (this.lastActionTimestamps.length < 10) return;
 
+    // Calculate time intervals between consecutive actions
     const intervals: number[] = [];
     for (let i = 1; i < this.lastActionTimestamps.length; i++) {
       intervals.push(this.lastActionTimestamps[i] - this.lastActionTimestamps[i - 1]);
@@ -2418,8 +2744,9 @@ class AntiDetectionMonitor {
     const mean = intervals.reduce((a, b) => a + b, 0) / intervals.length;
     const variance = intervals.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / intervals.length;
     const stdDev = Math.sqrt(variance);
-    const coefficientOfVariation = stdDev / mean;
+    const coefficientOfVariation = mean > 0 ? stdDev / mean : 0; // Avoid division by zero
 
+    // Low coefficient of variation indicates regularity
     if (coefficientOfVariation < 0.15) {
       this.addSuspicion("timing_regularity", 0.05);
     } else {
@@ -2427,9 +2754,10 @@ class AntiDetectionMonitor {
     }
   }
 
+  // Checks if the distribution of actions (fold, call, raise) is unnatural
   private checkActionDistribution(): void {
     const total = Array.from(this.actionCounts.values()).reduce((a, b) => a + b, 0);
-    if (total < 20) return;
+    if (total < 20) return; // Need enough actions to analyze distribution
 
     const foldCount = this.actionCounts.get("fold") || 0;
     const callCount = this.actionCounts.get("call") || 0;
@@ -2438,141 +2766,164 @@ class AntiDetectionMonitor {
     const foldRatio = foldCount / total;
     const raiseRatio = raiseCount / total;
 
+    // Unusually high fold rate or very low raise rate might be suspicious
     if (foldRatio > 0.8 || foldRatio < 0.1) {
       this.addSuspicion("action_distribution", 0.03);
     }
 
+    // Unusually high raise rate might indicate aggressive, potentially bot-like play
     if (raiseRatio > 0.6) {
       this.addSuspicion("aggressive_pattern", 0.02);
     }
   }
 
+  // Checks if screen capture rate is excessively high
   private checkScreenCaptureRate(): void {
-    if (this.screenCaptureCount > 1000) {
+    if (this.screenCaptureCount > 1000) { // Arbitrary threshold
       this.addSuspicion("high_capture_rate", 0.02);
     }
   }
 
+  // Checks for bursts of activity that might indicate rapid, non-human actions
   private checkBurstActivity(): void {
     const now = Date.now();
+    // Count actions within the last 5 seconds
     const recentActions = this.lastActionTimestamps.filter(t => now - t < 5000);
 
-    if (recentActions.length > 20) {
+    if (recentActions.length > 20) { // If more than 20 actions in 5 seconds
       this.addSuspicion("burst_activity", 0.08);
     }
   }
 
+  // Adds suspicion for a specific factor, capped at 1.0
   private addSuspicion(factor: string, amount: number): void {
     const current = this.suspicionFactors.get(factor) || 0;
     this.suspicionFactors.set(factor, Math.min(1, current + amount));
     this.updateOverallSuspicion();
   }
 
+  // Removes suspicion for a factor, ensuring it doesn't go below 0
   private removeSuspicion(factor: string, amount: number): void {
     const current = this.suspicionFactors.get(factor) || 0;
     this.suspicionFactors.set(factor, Math.max(0, current - amount));
     this.updateOverallSuspicion();
   }
 
+  // Gradually reduces suspicion over time
   private decaySuspicion(): void {
     for (const [factor, value] of this.suspicionFactors) {
-      this.suspicionFactors.set(factor, Math.max(0, value * 0.95));
+      this.suspicionFactors.set(factor, Math.max(0, value * 0.95)); // Decay by 5%
     }
     this.updateOverallSuspicion();
   }
 
+  // Updates the overall suspicion level based on individual factors
   private updateOverallSuspicion(): void {
     let total = 0;
     for (const value of this.suspicionFactors.values()) {
       total += value;
     }
 
-    const normalizedSuspicion = Math.min(1, total / 5);
-    (this.adapter as any).suspicionLevel = normalizedSuspicion;
+    // Normalize total suspicion to a 0-1 range (assuming max possible sum of factors is around 5)
+    this.adapter.suspicionLevel = Math.min(1, total / 5);
 
-    // Auto-ajustement des délais si suspicion élevée
-    if (normalizedSuspicion > 0.6) {
-      this.applyEmergencyRandomization(normalizedSuspicion);
+    // Apply emergency randomization if suspicion is high
+    if (this.adapter.suspicionLevel > 0.6) {
+      this.applyEmergencyRandomization(this.adapter.suspicionLevel);
     }
 
-    if (normalizedSuspicion > 0.5) {
+    // Emit an alert if suspicion level exceeds a certain threshold
+    if (this.adapter.suspicionLevel > 0.5) {
       this.adapter["emitPlatformEvent"]("anti_detection_alert", {
-        level: normalizedSuspicion,
+        level: this.adapter.suspicionLevel,
         factors: Object.fromEntries(this.suspicionFactors),
-        recommendation: normalizedSuspicion > 0.8 ? "pause_session" : "reduce_activity",
-        autoAdjusted: normalizedSuspicion > 0.6,
+        recommendation: this.adapter.suspicionLevel > 0.8 ? "pause_session" : "reduce_activity",
+        autoAdjusted: this.adapter.suspicionLevel > 0.6, // Indicate if settings were auto-adjusted
       });
     }
   }
 
+  // Applies more aggressive anti-detection measures when suspicion is high
   private applyEmergencyRandomization(suspicionLevel: number): void {
-    const humanizer = (this.adapter as any).getHumanizer?.();
+    const humanizer = getHumanizer(); // Get humanizer instance
     if (!humanizer) return;
 
     const currentSettings = humanizer.getSettings();
 
-    const multiplier = 1 + (suspicionLevel - 0.6) * 2;
+    // Increase delays and variance based on suspicion level
+    const multiplier = 1 + (suspicionLevel - 0.6) * 2; // Scale multiplier from 1.0 to 2.0+
 
     humanizer.updateSettings({
       minDelayMs: Math.round(currentSettings.minDelayMs * multiplier),
       maxDelayMs: Math.round(currentSettings.maxDelayMs * multiplier),
-      thinkingTimeVariance: Math.min(0.6, currentSettings.thinkingTimeVariance * 1.5),
-      enableMisclicks: suspicionLevel > 0.7 ? true : currentSettings.enableMisclicks,
-      misclickProbability: suspicionLevel > 0.7 ? 0.001 : currentSettings.misclickProbability,
+      thinkingTimeVariance: Math.min(0.6, currentSettings.thinkingTimeVariance * 1.5), // Limit variance increase
+      enableMisclicks: suspicionLevel > 0.7 ? true : currentSettings.enableMisclicks, // Enable misclicks at high suspicion
+      misclickProbability: suspicionLevel > 0.7 ? 0.001 : currentSettings.misclickProbability, // Increase misclick probability
     });
 
+    // Inject noise into GTO calculations if applicable
     const gtoAdapter = (this.adapter as any).gtoAdapter;
     if (gtoAdapter && suspicionLevel > 0.6) {
-      const noiseLevel = (suspicionLevel - 0.6) * 0.25;
-      console.warn(`[Anti-Detection] Injecting ${(noiseLevel * 100).toFixed(1)}% GTO noise`);
+      const noiseLevel = (suspicionLevel - 0.6) * 0.25; // Scale noise from 0% to 12.5%
+      console.warn(`[Anti-Detection] Injecting ${(noiseLevel * 100).toFixed(1)}% GTO noise due to high suspicion.`);
       (gtoAdapter as any).injectedNoise = noiseLevel;
     }
 
+    // Trigger a random human interaction more frequently at high suspicion
     if (suspicionLevel > 0.7) {
       this.triggerRandomHumanInteraction();
     }
 
-    console.warn(`[Anti-Detection] Emergency randomization applied (${Math.round(suspicionLevel * 100)}%)`);
+    console.warn(`[Anti-Detection] Emergency randomization applied (Suspicion: ${(suspicionLevel * 100).toFixed(1)}%).`);
   }
 
+  // Checks for unrealistically fast sequences of actions
   private checkImpossibleTimings(): void {
-    if (this.lastActionTimestamps.length < 3) return;
+    if (this.lastActionTimestamps.length < 3) return; // Need at least 3 actions
 
-    const recentTimings = this.lastActionTimestamps.slice(-10);
-    const veryFastActions = recentTimings.filter((timestamp, i) => {
-      if (i === 0) return false;
-      return timestamp - recentTimings[i - 1] < 300; // <300ms = suspect
-    });
+    const recentTimings = this.lastActionTimestamps.slice(-10); // Check last 10 actions
+    let fastActionCount = 0;
 
-    if (veryFastActions.length > 2) {
+    // Count pairs of actions occurring very close together (<300ms)
+    for (let i = 1; i < recentTimings.length; i++) {
+      if (recentTimings[i] - recentTimings[i - 1] < 300) {
+        fastActionCount++;
+      }
+    }
+
+    // If too many fast actions, raise suspicion
+    if (fastActionCount > 2) {
       this.addSuspicion("impossible_timings", 0.15);
     }
   }
 
+  // Checks for repetitive sequences of the same action (e.g., fold-fold-fold)
   private checkActionSequencePatterns(): void {
-    if (this.patterns.length < 10) return;
+    if (this.patterns.length < 10) return; // Need sufficient history
 
-    const recentPatterns = this.patterns.slice(-20);
+    const recentPatterns = this.patterns.slice(-20); // Analyze last 20 actions
     const actionTypes = recentPatterns.map(p => p.type);
 
-    // Détecter les séquences répétitives (fold-fold-fold ou call-call-call)
     let maxRepetition = 1;
     let currentRepetition = 1;
 
+    // Find the longest consecutive sequence of the same action type
     for (let i = 1; i < actionTypes.length; i++) {
       if (actionTypes[i] === actionTypes[i - 1]) {
         currentRepetition++;
         maxRepetition = Math.max(maxRepetition, currentRepetition);
       } else {
-        currentRepetition = 1;
+        currentRepetition = 1; // Reset count if action changes
       }
     }
 
+    // If a single action is repeated many times consecutively, it's suspicious
     if (maxRepetition > 5) {
       this.addSuspicion("repetitive_sequences", 0.1);
     }
   }
 
+  // Provides statistics for monitoring and debugging
   getStats(): {
     actionCounts: Record<string, number>;
     screenCaptureCount: number;
@@ -2583,18 +2934,21 @@ class AntiDetectionMonitor {
       actionCounts: Object.fromEntries(this.actionCounts),
       screenCaptureCount: this.screenCaptureCount,
       suspicionFactors: Object.fromEntries(this.suspicionFactors),
-      overallSuspicion: (this.adapter as any).suspicionLevel,
+      overallSuspicion: this.adapter.suspicionLevel,
     };
   }
 }
 
+// Interface for action patterns recorded by AntiDetectionMonitor
 interface ActionPattern {
   type: string;
   timestamp: number;
 }
 
+// Register the GGClubAdapter with the PlatformAdapterRegistry
 PlatformAdapterRegistry.getInstance().register("ggclub", GGClubAdapter);
 
+// Factory function to create an instance of GGClubAdapter
 export function createGGClubAdapter(): GGClubAdapter {
   return new GGClubAdapter();
 }
