@@ -108,10 +108,13 @@ export const platformConfig = pgTable("platform_config", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   platformName: text("platform_name").notNull(),
   username: text("username"),
+  accountId: text("account_id").notNull(),
   enabled: boolean("enabled").notNull().default(false),
   connectionStatus: text("connection_status").default("disconnected"),
   lastConnectionAt: timestamp("last_connection_at"),
   settings: jsonb("settings"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 export const insertPlatformConfigSchema = createInsertSchema(platformConfig).omit({ id: true });
