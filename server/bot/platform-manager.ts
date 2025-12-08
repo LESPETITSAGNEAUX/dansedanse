@@ -537,7 +537,7 @@ export class PlatformManager extends EventEmitter {
 
     if (!decision.proceed) {
       // Capturer un screenshot pour analyse ultérieure
-      const screenshot = await this.adapter?.captureWindow(windowHandle);
+      const screenshot = await this.adapter?.captureScreen(windowHandle);
       analyzer.recordUncertainState(windowHandle, stateConfidence, decision.reason || "Unknown", screenshot);
 
       // Vérifier si on doit retry
@@ -785,7 +785,7 @@ export class PlatformManager extends EventEmitter {
     }
 
     const humanizer = getHumanizer();
-    const humanizedAction = humanizer.humanizeAction(action, 0.5, false);
+    const humanizedAction = await humanizer.humanizeAction(action, 0.5, false);
 
     managedTable.actionQueue.push({
       action,
