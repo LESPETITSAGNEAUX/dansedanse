@@ -356,9 +356,17 @@ export class DatabaseStorage implements IStorage {
     if (!existing) {
       logger.warning('[Storage]', 'Config non existante, création...');
       const platformName = updates.platformName || "unknown";
+      const username = updates.username || null;
+      
+      // Générer accountId basé sur username@platform ou un ID unique
+      const accountId = username && platformName 
+        ? `${username}@${platformName}`
+        : `account_${Date.now()}`;
+      
       const newConfig = await this.createPlatformConfig({ 
         platformName,
-        username: updates.username || null,
+        username,
+        accountId,
         enabled: updates.enabled ?? false,
         connectionStatus: updates.connectionStatus || "disconnected",
         settings: updates.settings || null,
@@ -367,7 +375,8 @@ export class DatabaseStorage implements IStorage {
       logger.session('[Storage]', '✅ Config plateforme créée', {
         id: newConfig.id,
         platform: newConfig.platformName,
-        username: newConfig.username
+        username: newConfig.username,
+        accountId: newConfig.accountId
       });
       
       return newConfig;
