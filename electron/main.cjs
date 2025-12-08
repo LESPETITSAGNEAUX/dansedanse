@@ -1,7 +1,15 @@
+// LOGGER EN PREMIER - Avant tout le reste pour capturer toutes les erreurs
+const logger = require('./logger.cjs');
+logger.captureConsole();
+logger.logStartup();
+
 const { app, BrowserWindow, ipcMain, Tray, Menu, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
+
+// Afficher le chemin des logs au démarrage
+console.log('[Electron] 📁 Logs enregistrés dans:', logger.getLogDirectory());
 
 let mainWindow;
 let tray;
