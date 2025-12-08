@@ -244,7 +244,8 @@ export function createWebSocketConnection(
   onError?: (error: Event) => void
 ): WebSocket {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+  const token = "poker-bot-secure-token-2024";
+  const ws = new WebSocket(`${protocol}//${window.location.host}/ws?token=${token}`);
 
   ws.onopen = () => {
     console.log("WebSocket connecté");
