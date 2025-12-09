@@ -336,6 +336,27 @@ export class DatabaseStorage implements IStorage {
     logger.debug('[Storage]', 'Récupération configuration plateforme...');
     const result = await this.db.select().from(this.schema.platformConfig).limit(1);
     if (result[0]) {
+      // Auto-fix: mapper les noms de plateforme incorrects vers le nom canonique
+      const platformNameMap: Record<string, string> = {
+        "ggpoker": "ggclub",
+        "gg poker": "ggclub",
+        "gg-poker": "ggclub",
+      };
+      
+      const currentName = result[0].platformName?.toLowerCase();
+      if (currentName && platformNameMap[currentName]) {
+        const correctName = platformNameMap[currentName];
+        logger.warning('[Storage]', `⚠️ Auto-fix: platformName ${result[0].platformName} -> ${correctName}`);
+        
+        // Corriger dans la base de données
+        await this.db.update(this.schema.platformConfig)
+          .set({ platformName: correctName })
+          .where(eq(this.schema.platformConfig.id, result[0].id));
+        
+        result[0].platformName = correctName;
+        logger.session('[Storage]', `✅ PlatformName corrigé en base: ${correctName}`);
+      }
+      
       logger.info('[Storage]', '✅ Config plateforme trouvée', { 
         platform: result[0].platformName,
         enabled: result[0].enabled,

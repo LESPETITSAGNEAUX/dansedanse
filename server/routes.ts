@@ -716,6 +716,36 @@ export async function registerRoutes(
       const updates = req.body;
       console.log("[API] PATCH /api/platform-config - Received updates:", JSON.stringify(updates));
 
+      // Mapping des noms de plateformes vers le nom canonique supporté
+      const platformNameMap: Record<string, string> = {
+        "ggpoker": "ggclub",
+        "gg poker": "ggclub",
+        "gg-poker": "ggclub",
+        "ggclub": "ggclub",
+        "gg club": "ggclub",
+        "gg-club": "ggclub",
+      };
+
+      // Si platformName est fourni, le valider et le mapper
+      if (updates.platformName) {
+        const normalizedName = updates.platformName.toLowerCase().trim();
+        const mappedName = platformNameMap[normalizedName];
+        
+        if (mappedName) {
+          updates.platformName = mappedName;
+          logger.info('[API]', `Platform name mapped: ${normalizedName} -> ${mappedName}`);
+        } else {
+          const supportedPlatforms = getSupportedPlatforms();
+          if (!supportedPlatforms.includes(normalizedName)) {
+            logger.warning('[API]', `Plateforme non supportée: ${updates.platformName}`, { supportedPlatforms });
+            return res.status(400).json({ 
+              error: `Plateforme non supportée: ${updates.platformName}`,
+              supportedPlatforms 
+            });
+          }
+        }
+      }
+
       const config = await storage.updatePlatformConfig(updates);
       console.log("[API] PATCH /api/platform-config - Saved config:", JSON.stringify(config));
 
