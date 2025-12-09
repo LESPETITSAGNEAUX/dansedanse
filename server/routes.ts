@@ -458,6 +458,7 @@ export async function registerRoutes(
       if (!session) {
         logger.info('[API]', 'Aucune session active');
         return res.json({
+          session: null,
           stats: {
             totalTables: 0,
             activeTables: 0,
@@ -497,7 +498,7 @@ export async function registerRoutes(
       };
 
       logger.info('[API]', 'Stats session', stats);
-      res.json({ stats, tables });
+      res.json({ session, stats, tables });
     } catch (error: any) {
       logger.error('[API]', 'Erreur récupération session', { 
         error: error.message,
@@ -717,6 +718,52 @@ export async function registerRoutes(
 
       const config = await storage.updatePlatformConfig(updates);
       console.log("[API] PATCH /api/platform-config - Saved config:", JSON.stringify(config));
+
+      // Si une session est active et qu'on a une config valide, initialiser PlatformManager
+      const activeSession = await storage.getActiveBotSession();
+      if (activeSession && config.platformName && config.enabled) {
+        const platformManager = getPlatformManager();
+        const currentStatus = platformManager.getStatus();
+        
+        // Initialiser seulement si pas déjà en cours d'exécution ou en connexion
+        if (currentStatus === "idle" || currentStatus === "disconnected") {
+          logger.session("API", "🔌 Initialisation PlatformManager après sauvegarde config");
+          
+          tableManager.setSessionId(activeSession.id);
+          
+          const settings = (config.settings || {}) as Record<string, any>;
+          const pmConfig: PlatformManagerConfig = {
+            platformName: config.platformName,
+            credentials: {
+              username: config.username || "",
+              password: settings.password || "",
+            },
+            autoReconnect: settings.autoReconnect ?? true,
+            reconnectDelayMs: settings.reconnectDelayMs ?? 5000,
+            maxReconnectAttempts: settings.maxReconnectAttempts ?? 3,
+            scanIntervalMs: settings.scanIntervalMs ?? 500,
+            actionDelayMs: settings.actionDelayMs ?? 100,
+            enableAutoAction: settings.enableAutoAction ?? true,
+          };
+          
+          // Lancer l'initialisation en background pour ne pas bloquer la réponse
+          platformManager.initialize(pmConfig).then(initialized => {
+            if (initialized) {
+              logger.session("API", "✅ PlatformManager initialisé - scan des tables démarré");
+              
+              // Notifier le frontend que la session est réellement active
+              broadcastToClients({
+                type: "session_started",
+                payload: { sessionId: activeSession.id }
+              });
+            } else {
+              logger.warning("API", "⚠️ Échec initialisation PlatformManager");
+            }
+          }).catch(err => {
+            logger.error("API", "Erreur initialisation PlatformManager", { error: String(err) });
+          });
+        }
+      }
 
       broadcastToClients({
         type: "platform_config_updated",

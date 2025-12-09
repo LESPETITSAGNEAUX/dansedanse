@@ -75,6 +75,44 @@ app.use((req, res, next) => {
         log(`🧹 Session expirée nettoyée: ${staleSession.id} (âge: ${Math.round(sessionAge / (60 * 60 * 1000))}h)`);
       } else {
         log(`ℹ️ Session existante trouvée: ${staleSession.id} (âge: ${Math.round(sessionAge / (60 * 1000))}min)`);
+        
+        // Initialiser PlatformManager pour session active existante
+        const platformConfig = await storage.getPlatformConfig();
+        if (platformConfig && platformConfig.platformName) {
+          const { getPlatformManager } = await import("./bot/platform-manager");
+          const { getTableManager } = await import("./bot/table-manager");
+          
+          const platformManager = getPlatformManager();
+          const tableManager = getTableManager();
+          tableManager.setSessionId(staleSession.id);
+          
+          const settings = (platformConfig.settings || {}) as Record<string, any>;
+          
+          const pmConfig = {
+            platformName: platformConfig.platformName,
+            credentials: {
+              username: platformConfig.username || "",
+              password: settings.password || "",
+            },
+            autoReconnect: settings.autoReconnect ?? true,
+            reconnectDelayMs: settings.reconnectDelayMs ?? 5000,
+            maxReconnectAttempts: settings.maxReconnectAttempts ?? 3,
+            scanIntervalMs: settings.scanIntervalMs ?? 500,
+            actionDelayMs: settings.actionDelayMs ?? 100,
+            enableAutoAction: settings.enableAutoAction ?? true,
+          };
+          
+          log(`🔌 Initialisation PlatformManager pour session existante...`);
+          const initialized = await platformManager.initialize(pmConfig);
+          
+          if (initialized) {
+            log(`✅ PlatformManager initialisé - scan des tables démarré`);
+          } else {
+            log(`⚠️ PlatformManager non initialisé - vérifiez la configuration`);
+          }
+        } else {
+          log(`⚠️ Pas de configuration plateforme - détection de tables désactivée`);
+        }
       }
     }
   } catch (error) {
