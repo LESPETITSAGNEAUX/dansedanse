@@ -20,20 +20,27 @@ let serverError = null;
 function waitForServer(port, maxAttempts = 30) {
   return new Promise((resolve) => {
     let attempts = 0;
+    let resolved = false;
     
     const check = () => {
+      if (resolved) return;
+      
       attempts++;
       console.log(`[Electron] Vérification serveur (tentative ${attempts}/${maxAttempts})...`);
       
       const req = http.get(`http://localhost:${port}/api/health`, (res) => {
-        console.log(`[Electron] ✅ Serveur répond avec status ${res.statusCode}`);
+        if (resolved) return;
+        resolved = true;
+        console.log(`[Electron] ✅ Serveur prêt (status ${res.statusCode})`);
         resolve(true);
       });
       
       req.on('error', (err) => {
+        if (resolved) return;
         if (attempts < maxAttempts) {
           setTimeout(check, 500);
         } else {
+          resolved = true;
           console.log('[Electron] ❌ Serveur ne répond pas après', maxAttempts, 'tentatives');
           resolve(false);
         }
@@ -41,9 +48,11 @@ function waitForServer(port, maxAttempts = 30) {
       
       req.setTimeout(1000, () => {
         req.destroy();
+        if (resolved) return;
         if (attempts < maxAttempts) {
           setTimeout(check, 500);
         } else {
+          resolved = true;
           resolve(false);
         }
       });
