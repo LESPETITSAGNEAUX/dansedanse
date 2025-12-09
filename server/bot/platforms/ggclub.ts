@@ -94,11 +94,27 @@ async function loadNativeModules(): Promise<void> {
     }
 
     try {
-      windowManager = await loadNativeModule<any>("node-window-manager");
-      if (windowManager) {
-        logger.info("GGClubAdapter", "✓ node-window-manager chargé (Windows)");
+      const wmModule = await loadNativeModule<any>("node-window-manager");
+      // Le module exporte { windowManager: { getWindows, getActiveWindow, ... } }
+      windowManager = wmModule?.windowManager || wmModule?.default?.windowManager || wmModule;
+      
+      // Vérifier que getWindows est disponible
+      if (windowManager && typeof windowManager.getWindows === 'function') {
+        logger.info("GGClubAdapter", "✓ node-window-manager chargé (Windows)", {
+          hasGetWindows: typeof windowManager.getWindows === 'function',
+          hasGetActiveWindow: typeof windowManager.getActiveWindow === 'function'
+        });
+      } else if (wmModule && typeof wmModule.getWindows === 'function') {
+        // Fallback: le module lui-même a getWindows
+        windowManager = wmModule;
+        logger.info("GGClubAdapter", "✓ node-window-manager chargé (Windows - direct)");
       } else {
-        throw new Error("Module loaded but null");
+        logger.error("GGClubAdapter", "❌ node-window-manager structure invalide", {
+          moduleKeys: wmModule ? Object.keys(wmModule) : [],
+          hasWindowManager: !!wmModule?.windowManager,
+          wmHasGetWindows: typeof wmModule?.windowManager?.getWindows
+        });
+        throw new Error("Module loaded but getWindows not found");
       }
     } catch (e) {
       logger.error("GGClubAdapter", "❌ node-window-manager ÉCHEC - DÉTECTION TABLES IMPOSSIBLE", { 
