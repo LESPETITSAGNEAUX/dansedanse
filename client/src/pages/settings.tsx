@@ -324,11 +324,11 @@ export default function SettingsPage() {
                         <SelectValue placeholder="Sélectionner une plateforme" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="ggpoker">GGPoker</SelectItem>
-                        <SelectItem value="pokerstars">PokerStars</SelectItem>
-                        <SelectItem value="partypoker">PartyPoker</SelectItem>
-                        <SelectItem value="888poker">888Poker</SelectItem>
-                        <SelectItem value="winamax">Winamax</SelectItem>
+                        <SelectItem value="ggclub">GG Club / GGPoker</SelectItem>
+                        <SelectItem value="pokerstars">PokerStars (bientôt)</SelectItem>
+                        <SelectItem value="partypoker">PartyPoker (bientôt)</SelectItem>
+                        <SelectItem value="888poker">888Poker (bientôt)</SelectItem>
+                        <SelectItem value="winamax">Winamax (bientôt)</SelectItem>
                         <SelectItem value="other">Autre</SelectItem>
                       </SelectContent>
                     </Select>
