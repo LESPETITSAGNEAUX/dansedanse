@@ -73,6 +73,14 @@ export const api = {
       return fetchJson(`${API_BASE}/session/stop`, { method: "POST" });
     },
 
+    async forceStop(): Promise<{ success: boolean; forced: boolean }> {
+      return fetchJson(`${API_BASE}/session/force-stop`, { method: "POST" });
+    },
+
+    async cleanupStale(): Promise<{ success: boolean; cleaned: boolean; sessionId?: string }> {
+      return fetchJson(`${API_BASE}/session/cleanup-stale`, { method: "POST" });
+    },
+
     async getCurrent(): Promise<{ session: BotSession | null; stats: TableStats; tables: TableState[] }> {
       return fetchJson(`${API_BASE}/session/current`);
     },

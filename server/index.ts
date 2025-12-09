@@ -62,6 +62,26 @@ app.use((req, res, next) => {
 
 (async () => {
   try {
+    const staleSession = await storage.getActiveBotSession();
+    if (staleSession && staleSession.startedAt) {
+      const sessionAge = Date.now() - new Date(staleSession.startedAt).getTime();
+      const MAX_STALE_AGE = 4 * 60 * 60 * 1000;
+      
+      if (sessionAge > MAX_STALE_AGE) {
+        await storage.updateBotSession(staleSession.id, {
+          status: "stopped",
+          stoppedAt: new Date(),
+        });
+        log(`🧹 Session expirée nettoyée: ${staleSession.id} (âge: ${Math.round(sessionAge / (60 * 60 * 1000))}h)`);
+      } else {
+        log(`ℹ️ Session existante trouvée: ${staleSession.id} (âge: ${Math.round(sessionAge / (60 * 1000))}min)`);
+      }
+    }
+  } catch (error) {
+    log(`Warning: Could not check stale sessions: ${error}`);
+  }
+
+  try {
     const { initializePlayerProfile } = await import("./bot/player-profile");
     await initializePlayerProfile();
     log("Player profile initialized from database");

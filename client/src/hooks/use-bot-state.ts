@@ -211,6 +211,17 @@ export function useBotState() {
       throw error;
     }
   }, []);
+
+  const forceStopSession = useCallback(async () => {
+    try {
+      setState(prev => ({ ...prev, error: null }));
+      await api.session.forceStop();
+      setState(prev => ({ ...prev, session: null }));
+    } catch (error: any) {
+      setState(prev => ({ ...prev, error: error.message }));
+      throw error;
+    }
+  }, []);
   
   const addTable = useCallback(async (config: { tableIdentifier: string; tableName: string; stakes: string }) => {
     try {
@@ -255,6 +266,7 @@ export function useBotState() {
     ...state,
     startSession,
     stopSession,
+    forceStopSession,
     addTable,
     removeTable,
     updateHumanizer,

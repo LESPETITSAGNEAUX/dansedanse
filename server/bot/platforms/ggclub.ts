@@ -483,39 +483,40 @@ export class GGClubAdapter extends PlatformAdapter {
   async detectTableWindows(): Promise<TableWindow[]> {
     logger.debug("GGClubAdapter", "Détection des fenêtres GGClub...");
 
-    // MOCK: Pour tester, on simule la détection d'une table
-    // TODO: Remplacer par vrai scan des fenêtres Windows (FindWindow API)
-    const mockTable: TableWindow = {
-      handle: 1001,
-      windowId: "ggclub-table-1",
-      title: "GGClub - NL10 - Table #1",
-      processName: "ggclub.exe", // Added processName
-      position: { x: 100, y: 100 }, // Added position
-      size: { width: 800, height: 600 }, // Added size
-    };
+    if (!IS_WINDOWS || !windowManager) {
+      logger.info("GGClubAdapter", "ℹ️ Mode développement/Linux - scan non disponible", {
+        IS_WINDOWS,
+        windowManagerLoaded: !!windowManager,
+        platform: process.platform
+      });
+      return [];
+    }
 
-    logger.session("GGClubAdapter", "🎰 Table détectée (MOCK)", { 
-      title: mockTable.title,
-      handle: mockTable.handle 
-    });
+    const ggclubWindows = await this.scanForGGClubWindows();
+    
+    const results: TableWindow[] = ggclubWindows.map(win => ({
+      windowId: `ggclub_${win.handle}`,
+      handle: win.handle,
+      title: win.title,
+      x: win.x,
+      y: win.y,
+      width: win.width,
+      height: win.height,
+      isActive: win.isActive,
+      isMinimized: win.isMinimized,
+    }));
 
-    // Emit the event correctly using the adapter's emitPlatformEvent
-    this.emitPlatformEvent("table_detected", { window: mockTable });
+    for (const table of results) {
+      this.emitPlatformEvent("table_detected", { window: table });
+    }
 
-    // Return the detected window in the expected format
-    return [
-      {
-        windowId: `ggclub_${mockTable.handle}`,
-        handle: mockTable.handle,
-        title: mockTable.title,
-        x: mockTable.position.x,
-        y: mockTable.position.y,
-        width: mockTable.size.width,
-        height: mockTable.size.height,
-        isActive: true, // Assume active for mock
-        isMinimized: false, // Assume not minimized for mock
-      }
-    ];
+    if (results.length > 0) {
+      logger.session("GGClubAdapter", `🎰 ${results.length} table(s) détectée(s)`, {
+        tables: results.map(t => ({ title: t.title, handle: t.handle }))
+      });
+    }
+
+    return results;
   }
 
   private async scanForGGClubWindows(): Promise<GGClubWindowInfo[]> {

@@ -30,6 +30,7 @@ export default function Dashboard() {
     error,
     startSession,
     stopSession,
+    forceStopSession,
     addTable,
     removeTable,
     updateHumanizer,
@@ -76,6 +77,15 @@ export default function Dashboard() {
       toast.success("Session arrêtée");
     } catch (error: any) {
       toast.error(error.message || "Erreur lors de l'arrêt");
+    }
+  };
+
+  const handleForceStop = async () => {
+    try {
+      await forceStopSession();
+      toast.success("Session arrêtée de force");
+    } catch (error: any) {
+      toast.error(error.message || "Erreur lors de l'arrêt forcé");
     }
   };
 
@@ -163,15 +173,27 @@ export default function Dashboard() {
           </div>
           <div className="flex gap-2">
             {session ? (
-              <Button 
-                variant="destructive"
-                onClick={handleStopSession}
-                className="font-mono text-sm"
-                data-testid="button-stop-session"
-              >
-                <Square className="w-4 h-4 mr-2" />
-                STOP URGENCE
-              </Button>
+              <>
+                <Button 
+                  variant="destructive"
+                  onClick={handleStopSession}
+                  className="font-mono text-sm"
+                  data-testid="button-stop-session"
+                >
+                  <Square className="w-4 h-4 mr-2" />
+                  STOP URGENCE
+                </Button>
+                <Button 
+                  variant="outline"
+                  onClick={handleForceStop}
+                  className="font-mono text-sm border-destructive text-destructive hover:bg-destructive/10"
+                  data-testid="button-force-stop"
+                  title="Forcer l'arrêt si la session est bloquée"
+                >
+                  <AlertTriangle className="w-4 h-4 mr-2" />
+                  FORCER
+                </Button>
+              </>
             ) : (
               <Button 
                 onClick={handleStartSession}

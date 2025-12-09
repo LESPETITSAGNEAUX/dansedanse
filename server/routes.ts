@@ -295,38 +295,115 @@ export async function registerRoutes(
   });
 
   app.post("/api/session/stop", async (req, res) => {
+    const session = await storage.getActiveBotSession();
+    if (!session) {
+      return res.status(400).json({ error: "Aucune session active" });
+    }
+
+    let stats = { totalProfit: 0, totalHandsPlayed: 0 };
+    let stopError: Error | null = null;
+    
     try {
-      const session = await storage.getActiveBotSession();
-      if (!session) {
-        return res.status(400).json({ error: "Aucune session active" });
+      await tableManager.stopAll();
+      stats = tableManager.getStats();
+    } catch (err: any) {
+      stopError = err;
+      logger.error("SessionManager", "Erreur arrêt tables", { error: String(err) });
+    } finally {
+      try {
+        await storage.updateBotSession(session.id, {
+          status: "stopped",
+          stoppedAt: new Date(),
+          totalProfit: stats.totalProfit,
+          handsPlayed: stats.totalHandsPlayed,
+        });
+      } catch (dbErr: any) {
+        logger.error("SessionManager", "Erreur DB lors arrêt", { error: String(dbErr) });
       }
 
-      await tableManager.stopAll();
-
-      const stats = tableManager.getStats();
-
-      await storage.updateBotSession(session.id, {
-        status: "stopped",
-        stoppedAt: new Date(),
-        totalProfit: stats.totalProfit,
-        handsPlayed: stats.totalHandsPlayed,
-      });
-
-      await storage.createActionLog({
-        sessionId: session.id,
-        logType: "info",
-        message: "Session arrêtée",
-        metadata: stats,
-      });
+      try {
+        await storage.createActionLog({
+          sessionId: session.id,
+          logType: "info",
+          message: stopError ? "Session arrêtée (avec erreurs)" : "Session arrêtée",
+          metadata: stats,
+        });
+      } catch (logErr) {}
 
       broadcastToClients({
         type: "session_stopped",
         payload: { sessionId: session.id, stats }
       });
 
-      res.json({ success: true, stats });
+      logger.session("SessionManager", "✅ Session arrêtée", { sessionId: session.id });
+    }
+
+    res.json({ success: true, stats });
+  });
+
+  app.post("/api/session/force-stop", async (req, res) => {
+    const session = await storage.getActiveBotSession();
+    if (!session) {
+      return res.status(400).json({ error: "Aucune session active" });
+    }
+
+    logger.warning("SessionManager", "⚠️ Arrêt forcé demandé", { sessionId: session.id });
+
+    try {
+      await tableManager.stopAll();
+    } catch (e) {
+      logger.warning("SessionManager", "Tables non arrêtées proprement", { error: String(e) });
+    }
+
+    try {
+      await storage.updateBotSession(session.id, {
+        status: "stopped",
+        stoppedAt: new Date(),
+      });
+
+      broadcastToClients({
+        type: "session_stopped",
+        payload: { sessionId: session.id, forced: true }
+      });
+
+      logger.session("SessionManager", "✅ Session arrêtée de force", { sessionId: session.id });
+      res.json({ success: true, forced: true });
     } catch (error: any) {
-      console.error("Erreur arrêt session:", error);
+      logger.error("SessionManager", "Erreur arrêt forcé", { error: String(error) });
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/session/cleanup-stale", async (req, res) => {
+    try {
+      const session = await storage.getActiveBotSession();
+      if (!session) {
+        return res.json({ success: true, message: "Aucune session à nettoyer" });
+      }
+
+      if (!session.startedAt) {
+        return res.json({ success: true, cleaned: false, message: "Session sans date de début" });
+      }
+
+      const sessionAge = Date.now() - new Date(session.startedAt).getTime();
+      const MAX_SESSION_AGE = 24 * 60 * 60 * 1000;
+
+      if (sessionAge > MAX_SESSION_AGE) {
+        await storage.updateBotSession(session.id, {
+          status: "stopped",
+          stoppedAt: new Date(),
+        });
+
+        logger.warning("SessionManager", "🧹 Session expirée nettoyée", { 
+          sessionId: session.id,
+          ageHours: Math.round(sessionAge / (60 * 60 * 1000))
+        });
+
+        return res.json({ success: true, cleaned: true, sessionId: session.id });
+      }
+
+      res.json({ success: true, cleaned: false, message: "Session encore valide" });
+    } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
   });
