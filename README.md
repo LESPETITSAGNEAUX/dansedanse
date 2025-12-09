@@ -439,8 +439,8 @@ Si vous avez déjà configuré la plateforme et qu'une session était active :
    - Le système détecte la session existante
    - Charge la configuration sauvegardée
    - Initialise le PlatformManager automatiquement
-   - Démarre le scan des tables
-3. **Dashboard prêt** : Les tables sont détectées automatiquement
+   - Démarre le scan des tables (Windows uniquement via `node-window-manager`)
+3. **Dashboard prêt** : Les tables sont détectées automatiquement (si sur Windows)
 
 ### Modifier la configuration
 

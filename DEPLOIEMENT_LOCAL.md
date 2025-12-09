@@ -525,11 +525,13 @@ Le bot dispose d'un système robuste de gestion des sessions :
 - Les sessions obsolètes (>4 heures) sont nettoyées au démarrage du serveur
 - Empêche l'accumulation de sessions fantômes dans la base de données
 
-**Détection des tables GGClub** :
-- Scan automatique des fenêtres Windows contenant "ggclub", "ggpoker", "nl", "plo", etc.
+**Détection des tables GGClub (Windows uniquement)** :
+- Utilise `node-window-manager` pour scanner les fenêtres Windows
 - Détection basée sur le titre de la fenêtre (insensible à la casse)
+- Critères : "ggclub", "ggpoker", "nl", "plo", "holdem", etc.
 - Filtrage automatique des fenêtres minimisées ou invisibles
-- Logs détaillés pour le débogage
+- **Note** : L'objet `windowManager` est correctement extrait du module importé
+- Logs détaillés pour le débogage dans `logs/bot-YYYY-MM-DD.log`
 
 ### 6.5 Démarrage de la session
 
@@ -2010,7 +2012,7 @@ sudo systemctl status postgresql  # Linux
 # Services > PostgreSQL            # Windows
 
 # Tester la connexion
-psql -U poker_bot -d poker_bot -h localhost
+psql -U poker_bot -d poker_bot -c "SELECT 1;"
 ```
 
 #### Redis ne se connecte pas

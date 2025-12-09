@@ -86,6 +86,7 @@ L'application détecte automatiquement les tables GGClub ouvertes sur Windows :
    - Titre de fenêtre contenant "ggclub", "ggpoker", "nl", "plo", "holdem", etc.
    - Fenêtres non minimisées et visibles
    - Détection insensible à la casse
+   - **Module utilisé** : `node-window-manager` (Windows uniquement)
 
 2. **Vérification de la détection** :
    - Ouvrir une ou plusieurs tables GGClub
@@ -97,6 +98,7 @@ L'application détecte automatiquement les tables GGClub ouvertes sur Windows :
    - Si aucune table n'est détectée, vérifier que GGClub est bien ouvert
    - S'assurer qu'une table est active (pas minimisée)
    - Consulter `logs/bot-YYYY-MM-DD.log` pour voir toutes les fenêtres scannées
+   - Vérifier que `node-window-manager` est correctement chargé (log: "✓ node-window-manager chargé")
 
 ## Gestion des sessions
 

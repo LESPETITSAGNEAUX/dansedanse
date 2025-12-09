@@ -1,4 +1,3 @@
-
 # Modules Natifs - Guide Technique
 
 ## Architecture de Chargement
@@ -35,7 +34,7 @@ export async function loadNativeModule<T>(moduleName: string): Promise<T | null>
       }
     }
   }
-  
+
   // 2. Fallback : chargement standard
   try {
     const mod = esmRequire(moduleName);
@@ -43,7 +42,7 @@ export async function loadNativeModule<T>(moduleName: string): Promise<T | null>
   } catch (e) {
     console.error(`Failed to load ${moduleName}:`, e.message);
   }
-  
+
   // 3. Dernier recours : dynamic import
   try {
     const mod = await import(moduleName);
@@ -72,7 +71,7 @@ const nativeModules = [
 for (const moduleName of nativeModules) {
   const srcModulePath = path.join(process.cwd(), 'node_modules', moduleName);
   const destModulePath = path.join(unpackedNodeModules, moduleName);
-  
+
   if (fs.existsSync(srcModulePath)) {
     console.log(`Copying ${moduleName}...`);
     copyDirRecursive(srcModulePath, destModulePath);
@@ -115,6 +114,33 @@ if (IS_WINDOWS && !IS_REPLIT) {
   } catch (e) {
     logger.error("❌ robotjs ÉCHEC", { error: String(e) });
     // Continuer sans robotjs (fonctionnalités limitées)
+  }
+
+  try {
+    const wmModule = await loadNativeModule<any>("node-window-manager");
+    // CORRECTION : Le module exporte { windowManager: { getWindows, getActiveWindow, ... } }
+    // On extrait l'objet windowManager du module
+    windowManager = wmModule?.windowManager || wmModule?.default?.windowManager || wmModule;
+
+    // Vérifier que getWindows est disponible
+    if (windowManager && typeof windowManager.getWindows === 'function') {
+      logger.info("GGClubAdapter", "✓ node-window-manager chargé (Windows)", {
+        hasGetWindows: typeof windowManager.getWindows === 'function',
+        hasGetActiveWindow: typeof windowManager.getActiveWindow === 'function'
+      });
+    } else {
+      logger.error("GGClubAdapter", "❌ node-window-manager structure invalide", {
+        moduleKeys: wmModule ? Object.keys(wmModule) : [],
+        hasWindowManager: !!wmModule?.windowManager,
+        wmHasGetWindows: typeof wmModule?.windowManager?.getWindows
+      });
+      throw new Error("Module loaded but getWindows not found");
+    }
+  } catch (e) {
+    logger.error("GGClubAdapter", "❌ node-window-manager ÉCHEC - DÉTECTION TABLES IMPOSSIBLE", { 
+      error: String(e),
+      solution: "Vérifiez que node-window-manager est installé : npm install node-window-manager"
+    });
   }
 } else {
   logger.info("ℹ Mode serveur - modules natifs Windows désactivés");
