@@ -1,4 +1,3 @@
-
 # Gestion des Sessions - Documentation Technique
 
 ## Vue d'ensemble
@@ -82,7 +81,7 @@ Démarre une nouvelle session de jeu avec détection automatique des tables.
 const platformConfig = await storage.getPlatformConfig();
 if (platformConfig && platformConfig.platformName) {
   const platformManager = getPlatformManager();
-  
+
   // Configure avec les paramètres sauvegardés
   const pmConfig: PlatformManagerConfig = {
     platformName: platformConfig.platformName,
@@ -183,7 +182,7 @@ async scanForGGClubWindows(): Promise<GGClubWindowInfo[]> {
 
   for (const win of windows) {
     const title = win.getTitle().toLowerCase();
-    
+
     // Patterns de détection (case-insensitive)
     const isGGPokerWindow = 
       title.includes("ggclub") || 
@@ -195,7 +194,7 @@ async scanForGGClubWindows(): Promise<GGClubWindowInfo[]> {
 
     if (isGGPokerWindow) {
       const bounds = win.getBounds();
-      
+
       // Filtrer fenêtres minimisées
       if (bounds.width > 0 && bounds.height > 0) {
         results.push({
@@ -497,3 +496,73 @@ await adapter.connect({...});
 const tables = await adapter.detectTableWindows();
 console.log(`${tables.length} tables détectées`);
 ```
+
+## 🔄 Initialisation Automatique
+
+### Au Démarrage de l'Application
+
+Quand l'application démarre, le système vérifie automatiquement si une session active existe en base de données :
+
+1. **Détection session existante** :
+   ```typescript
+   const staleSession = await storage.getActiveBotSession();
+   ```
+
+2. **Nettoyage sessions obsolètes** (> 4 heures) :
+   ```typescript
+   if (sessionAge > MAX_STALE_AGE) {
+     await storage.updateBotSession(staleSession.id, {
+       status: "stopped",
+       stoppedAt: new Date(),
+     });
+   }
+   ```
+
+3. **Initialisation automatique PlatformManager** :
+   - Si une session active valide existe
+   - ET une configuration plateforme est sauvegardée
+   - ALORS le PlatformManager est automatiquement initialisé
+   - Le scan des tables démarre immédiatement
+
+```typescript
+// Chargement automatique au démarrage
+const platformConfig = await storage.getPlatformConfig();
+if (platformConfig && platformConfig.platformName) {
+  const platformManager = getPlatformManager();
+  tableManager.setSessionId(staleSession.id);
+
+  await platformManager.initialize(pmConfig);
+  // Le polling démarre automatiquement
+}
+```
+
+### Après Sauvegarde de Configuration
+
+Quand vous sauvegardez la configuration plateforme dans les Settings :
+
+1. **Sauvegarde en base** : `PATCH /api/platform-config`
+2. **Vérification session active** : Si une session est en cours
+3. **Initialisation automatique** : Le PlatformManager démarre le scan
+4. **Notification frontend** : Broadcast `session_started`
+
+```typescript
+const activeSession = await storage.getActiveBotSession();
+if (activeSession && config.platformName && config.enabled) {
+  const platformManager = getPlatformManager();
+
+  // Lancer l'initialisation en background
+  platformManager.initialize(pmConfig).then(initialized => {
+    if (initialized) {
+      // Notifier le frontend
+      broadcastToClients({
+        type: "session_started",
+        payload: { sessionId: activeSession.id }
+      });
+    }
+  });
+}
+```
+
+## 🔧 Architecture
+
+Le bot utilise une architecture modulaire avec séparation des responsabilités :

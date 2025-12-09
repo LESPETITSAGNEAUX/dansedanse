@@ -417,11 +417,39 @@ Main Thread
 
 ## 🎮 Utilisation
 
+### Première utilisation
+
 1. **Démarrer le serveur** : `npm run dev`
 2. **Accéder au dashboard** : http://localhost:5000
-3. **Configurer un compte** : Settings > Platform > Add Account
-4. **Connecter GGClub** : Platform > Connect
-5. **Lancer session** : Dashboard > Start Session
+3. **Configurer la plateforme** : Settings > Configuration Plateforme
+   - Sélectionner la plateforme (ex: GGPoker)
+   - Entrer vos identifiants
+   - Sauvegarder
+4. **Lancer session** : Dashboard > Start Session
+   - Le PlatformManager s'initialise automatiquement
+   - Le scan des tables démarre
+   - Les tables GGClub ouvertes sont détectées
+
+### Utilisations suivantes
+
+Si vous avez déjà configuré la plateforme et qu'une session était active :
+
+1. **Démarrer le serveur** : `npm run dev`
+2. **Initialisation automatique** :
+   - Le système détecte la session existante
+   - Charge la configuration sauvegardée
+   - Initialise le PlatformManager automatiquement
+   - Démarre le scan des tables
+3. **Dashboard prêt** : Les tables sont détectées automatiquement
+
+### Modifier la configuration
+
+Si vous modifiez la configuration plateforme pendant qu'une session est active :
+
+1. Settings > Configuration Plateforme
+2. Modifier les paramètres
+3. Sauvegarder
+4. **Le PlatformManager redémarre automatiquement** avec la nouvelle config
 
 ## 🔑 Variables d'Environnement
 
@@ -487,6 +515,8 @@ curl -X POST http://localhost:5000/api/tests/stress
 - `platform_status_change` : Changement de statut
 - `auto_play_changed` : Auto-play activé/désactivé
 - `device_connected` : Nouveau device connecté
+- `session_started` : Session démarrée (manuel ou auto)
+- `platform_config_updated` : Configuration plateforme mise à jour
 
 ### API Endpoints - Tests & Dataset
 
