@@ -303,14 +303,50 @@ export class GGClubAdapter extends PlatformAdapter {
   private async initializeTesseract(): Promise<void> {
     try {
       if (Tesseract && Tesseract.createWorker) {
-        this.tesseractWorker = await Tesseract.createWorker('eng');
+        this.tesseractWorker = await Tesseract.createWorker('eng', 1, {
+          errorHandler: (err: any) => {
+            logger.error("GGClubAdapter", "Tesseract worker error", { error: String(err) });
+          },
+        });
         console.log("Tesseract OCR worker initialized");
       } else {
         console.warn("Tesseract not available, OCR will be limited");
       }
     } catch (error) {
       console.error("Failed to initialize Tesseract:", error);
+      this.tesseractWorker = null;
     }
+  }
+  
+  private async reinitializeTesseractIfNeeded(): Promise<void> {
+    if (!this.tesseractWorker && Tesseract && Tesseract.createWorker) {
+      try {
+        logger.info("GGClubAdapter", "Réinitialisation du worker Tesseract...");
+        this.tesseractWorker = await Tesseract.createWorker('eng', 1, {
+          errorHandler: (err: any) => {
+            logger.error("GGClubAdapter", "Tesseract worker error", { error: String(err) });
+          },
+        });
+        logger.info("GGClubAdapter", "✓ Worker Tesseract réinitialisé");
+      } catch (error) {
+        logger.error("GGClubAdapter", "Échec réinitialisation Tesseract", { error: String(error) });
+      }
+    }
+  }
+  
+  private validateImageBuffer(buffer: Buffer): boolean {
+    if (!buffer || buffer.length === 0) {
+      return false;
+    }
+    if (buffer.length < 100) {
+      logger.debug("GGClubAdapter", "Buffer image trop petit", { size: buffer.length });
+      return false;
+    }
+    if (buffer.length > 50 * 1024 * 1024) {
+      logger.warning("GGClubAdapter", "Buffer image trop grand, risque de crash mémoire", { size: buffer.length });
+      return false;
+    }
+    return true;
   }
 
   private getDefaultScreenLayout(): GGClubScreenLayout {
@@ -627,17 +663,78 @@ export class GGClubAdapter extends PlatformAdapter {
 
           if (!title) continue;
 
-          // Critères de détection élargis (case-insensitive)
+          // Exclure les fenêtres de l'application elle-même et fenêtres système
           const titleLower = title.toLowerCase();
-          const isGGPokerWindow = 
+          
+          // Liste des patterns à exclure (applications système et notre propre app)
+          const excludePatterns = [
+            "gto poker bot",
+            "explorateur",
+            "explorer",
+            "file explorer",
+            "chrome",
+            "edge",
+            "firefox",
+            "visual studio",
+            "vscode",
+            "cmd.exe",
+            "powershell",
+            "terminal",
+            "notepad",
+            "task manager",
+            "gestionnaire",
+            "settings",
+            "paramètres",
+            "control panel",
+            "panneau",
+          ];
+          
+          const isExcludedWindow = excludePatterns.some(pattern => titleLower.includes(pattern));
+
+          if (isExcludedWindow) {
+            logger.debug("GGClubAdapter", "⏭️ Fenêtre système/app ignorée", { title });
+            continue;
+          }
+          
+          // Essayer de vérifier le nom du processus (si disponible)
+          let processPath = "";
+          try {
+            if (typeof win.path === 'string') {
+              processPath = win.path.toLowerCase();
+            } else if (typeof win.getProcessPath === 'function') {
+              processPath = (win.getProcessPath() || "").toLowerCase();
+            } else if (win.process && typeof win.process.path === 'string') {
+              processPath = win.process.path.toLowerCase();
+            }
+          } catch (e) {
+            // Ignorer - le processPath est optionnel
+          }
+          
+          // Vérification par processus (plus fiable que le titre)
+          const isGGPokerProcess = 
+            processPath.includes("ggpoker") ||
+            processPath.includes("ggclub") ||
+            processPath.includes("gg poker");
+
+          // Critères de détection stricts pour GGClub/GGPoker
+          // La fenêtre doit avoir un titre typique de table de poker GGClub
+          const isGGPokerTitle = 
+            // Patterns de titres GGClub/GGPoker réels
             titleLower.includes("ggclub") || 
             titleLower.includes("ggpoker") || 
             titleLower.includes("gg poker") ||
-            titleLower.includes("nl") ||
-            titleLower.includes("plo") ||
-            titleLower.match(/table\s*\d+/i) ||
-            titleLower.includes("holdem") ||
-            titleLower.includes("poker") && (titleLower.includes("table") || titleLower.includes("bb"));
+            // Tables cash avec format typique (ex: "NL 100 - Table 1")
+            (titleLower.match(/nl\s*\d+/i) && titleLower.includes("table")) ||
+            (titleLower.match(/plo\s*\d+/i) && titleLower.includes("table")) ||
+            // Tournois avec format typique
+            titleLower.match(/hold'?em.*table/i) ||
+            titleLower.match(/omaha.*table/i) ||
+            // Format table numérotée standard des rooms de poker
+            titleLower.match(/table\s*#?\d+.*bb/i) ||
+            titleLower.match(/\d+\/\d+.*table/i);
+          
+          // La fenêtre est valide si le processus correspond OU si le titre correspond
+          const isGGPokerWindow = isGGPokerProcess || isGGPokerTitle;
 
           if (isGGPokerWindow) {
             const bounds = win.getBounds();
@@ -645,6 +742,24 @@ export class GGClubAdapter extends PlatformAdapter {
             // Ne pas ajouter les fenêtres minimisées/invisibles
             if (bounds.width === 0 || bounds.height === 0) {
               logger.debug("GGClubAdapter", "⏭️ Fenêtre ignorée (minimisée)", { title });
+              continue;
+            }
+            
+            // Validation des dimensions typiques d'une table de poker
+            // Les tables de poker ont généralement des proportions de 4:3 à 16:9
+            // et une taille minimale raisonnable (au moins 400x300)
+            const aspectRatio = bounds.width / bounds.height;
+            const isReasonableSize = bounds.width >= 400 && bounds.height >= 300;
+            const isReasonableAspect = aspectRatio >= 1.0 && aspectRatio <= 2.5;
+            
+            // Si le processus n'est pas confirmé ET que les dimensions sont suspectes, ignorer
+            if (!isGGPokerProcess && (!isReasonableSize || !isReasonableAspect)) {
+              logger.debug("GGClubAdapter", "⏭️ Fenêtre ignorée (dimensions atypiques pour table)", { 
+                title, 
+                width: bounds.width, 
+                height: bounds.height,
+                aspectRatio: aspectRatio.toFixed(2)
+              });
               continue;
             }
 
@@ -1952,7 +2067,19 @@ export class GGClubAdapter extends PlatformAdapter {
       };
     }
 
+    // Valider le buffer avant de l'envoyer à Tesseract pour éviter les crashes mémoire
+    if (!this.validateImageBuffer(screenBuffer)) {
+      logger.debug("GGClubAdapter", "Buffer invalide pour OCR, retour vide", {
+        bufferSize: screenBuffer?.length || 0,
+        region
+      });
+      return { text: "", confidence: 0, bounds: region };
+    }
+
     await this.addRandomDelay(20);
+    
+    // Réinitialiser le worker si nécessaire
+    await this.reinitializeTesseractIfNeeded();
 
     if (this.tesseractWorker && screenBuffer.length > 0) {
       try {
@@ -1964,13 +2091,27 @@ export class GGClubAdapter extends PlatformAdapter {
           width: Math.min(region.width, imageWidth ? imageWidth - region.x : Infinity),
           height: Math.min(region.height, imageHeight ? imageHeight - region.y : Infinity),
         };
+        
+        // Vérifier que la région est valide
+        if (rect.width <= 0 || rect.height <= 0) {
+          logger.debug("GGClubAdapter", "Région OCR invalide", { rect });
+          return { text: "", confidence: 0, bounds: region };
+        }
 
-        // Tesseract might require imageWidth/Height if not using direct buffer recognition
-        const result = await this.tesseractWorker.recognize(screenBuffer, {
+        // Timeout pour éviter les blocages - 5 secondes max
+        const timeoutPromise = new Promise<null>((_, reject) => 
+          setTimeout(() => reject(new Error('OCR timeout')), 5000)
+        );
+        
+        const recognizePromise = this.tesseractWorker.recognize(screenBuffer, {
           rectangle: rect,
-          // imageWidth: imageWidth, // Pass if needed by the worker
-          // imageHeight: imageHeight,
         });
+
+        const result = await Promise.race([recognizePromise, timeoutPromise]) as any;
+        
+        if (!result || !result.data) {
+          throw new Error('OCR returned invalid result');
+        }
 
         const text = result.data.text.trim();
         const confidence = result.data.confidence / 100; // Normalize confidence to 0-1
@@ -1978,14 +2119,13 @@ export class GGClubAdapter extends PlatformAdapter {
 
         // Log low confidence OCR
         if (confidence < 0.6) {
-          // Attempt to get window handle for logging
           const windowHandle = Array.from(this.activeWindows.keys())[0];
           if (windowHandle) {
             visionErrorLogger.logOCRError(
-              parseInt(windowHandle.split('_')[1]), // Extract numeric handle
+              parseInt(windowHandle.split('_')[1]),
               region,
-              result.data.text, // Log raw text
-              text, // Log cleaned text
+              result.data.text,
+              text,
               confidence,
               this.debugMode ? screenBuffer : undefined
             );
@@ -2005,7 +2145,7 @@ export class GGClubAdapter extends PlatformAdapter {
         }
 
         // Cache result if confidence is reasonable
-        if (confidence > 0.1) { // Cache even low confidence results to avoid re-computation
+        if (confidence > 0.1) {
           this.ocrCache.set(screenBuffer, region, text, confidence);
         }
 
@@ -2014,8 +2154,23 @@ export class GGClubAdapter extends PlatformAdapter {
           confidence,
           bounds: region,
         };
-      } catch (error) {
-        console.error("OCR error:", error);
+      } catch (error: any) {
+        const errorMessage = String(error?.message || error);
+        
+        logger.error("GGClubAdapter", "Erreur OCR - terminaison worker pour réinitialisation", { 
+          error: errorMessage 
+        });
+        
+        // Terminer et nullifier le worker sur TOUTE erreur pour garantir la réinitialisation
+        // Cela évite d'avoir un worker dans un état corrompu ou bloqué
+        try {
+          if (this.tesseractWorker?.terminate) {
+            await this.tesseractWorker.terminate();
+          }
+        } catch (e) {
+          // Ignorer erreur de terminaison
+        }
+        this.tesseractWorker = null;
 
         // Log OCR failure
         const windowHandle = Array.from(this.activeWindows.keys())[0];
@@ -2023,9 +2178,9 @@ export class GGClubAdapter extends PlatformAdapter {
           visionErrorLogger.logOCRError(
             parseInt(windowHandle.split('_')[1]),
             region,
-            "", // No text detected
-            null, // Indicate failure
-            0, // Zero confidence
+            "",
+            null,
+            0,
             this.debugMode ? screenBuffer : undefined
           );
         }
