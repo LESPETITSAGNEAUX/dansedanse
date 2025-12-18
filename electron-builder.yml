@@ -36,7 +36,10 @@ asarUnpack:
   - "**/node_modules/temp/**/*"
   - "**/node_modules/node-gyp-build/**/*"
   - "**/node_modules/rimraf/**/*"
+  - "**/node_modules/glob/**/*"
   - "**/node_modules/os-tmpdir/**/*"
+  - "**/node_modules/inflight/**/*"
+  - "**/node_modules/minimatch/**/*"
 
 extraResources:
   - from: native/build/Release/

@@ -92,6 +92,26 @@ for (const moduleName of nativeModules) {
 - ✅ **node-window-manager** : Gestion fenêtres
 - ✅ **DXGI capture** : Capture ultra-rapide DirectX
 
+### Dépendances Transitives Requises
+
+L'archive ASAR doit inclure les dépendances transitives des modules natifs. En cas d'erreur `Cannot find module 'glob'` au lancement :
+
+```yaml
+# electron-builder.yml - asarUnpack
+asarUnpack:
+  - "**/node_modules/robotjs/**/*"
+  - "**/node_modules/node-window-manager/**/*"
+  - "**/node_modules/screenshot-desktop/**/*"
+  # ✅ Dépendances transitives REQUISES
+  - "**/node_modules/temp/**/*"
+  - "**/node_modules/rimraf/**/*"
+  - "**/node_modules/glob/**/*"        # CRITIQUE pour screenshot-desktop
+  - "**/node_modules/inflight/**/*"
+  - "**/node_modules/minimatch/**/*"
+```
+
+Ces modules sont requis par `screenshot-desktop` → `temp` → `rimraf` → `glob`.
+
 ### Linux/macOS
 - ✅ **tesseract.js** : OCR (JavaScript pur)
 - ⚠️ **screenshot-desktop** : Partiel (X11 requis)
