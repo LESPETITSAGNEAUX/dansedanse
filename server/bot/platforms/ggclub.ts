@@ -719,29 +719,35 @@ export class GGClubAdapter extends PlatformAdapter {
           }
 
           // Critères de détection pour GGClub/GGPoker
-          // La fenêtre doit avoir un titre typique de table de poker GGClub
-          const isGGPokerTitle = 
-            // Patterns de titres GGClub/GGPoker réels
+          // STRICT: Patterns qui identifient réellement des tables poker
+          
+          // Exclure les jeux/applis clairement non-poker
+          const isNotPoker = 
+            titleLower.includes("nhl") ||     // Hockey
+            titleLower.includes("nba") ||     // Basketball
+            titleLower.includes("fifa") ||    // Football
+            titleLower.includes("explorer") || // File explorer
+            titleLower.includes("firefox") ||  // Browser
+            titleLower.includes("chrome") ||   // Browser
+            titleLower.includes("vscode") ||   // Editor
+            titleLower.includes("command") ||  // Terminal
+            titleLower.includes("powershell"); // Terminal
+          
+          const isGGPokerTitle = !isNotPoker && (
+            // Patterns de titres GGClub/GGPoker SPÉCIFIQUES
             titleLower.includes("ggclub") || 
             titleLower.includes("ggpoker") || 
             titleLower.includes("gg poker") ||
-            // Tables cash avec format typique (ex: "NL 100 - Table 1")
-            (titleLower.match(/nl\s*\d+/i)) ||
-            (titleLower.match(/plo\s*\d+/i)) ||
-            (titleLower.match(/holdem\s*\d+/i)) ||
-            (titleLower.match(/omaha\s*\d+/i)) ||
-            // Tournois avec format typique
-            titleLower.match(/hold'?em/i) ||
-            titleLower.match(/omaha/i) ||
-            // Format table numérotée standard des rooms de poker
-            titleLower.match(/table\s*#?\d+/i) ||
-            titleLower.match(/\d+\/\d+/) ||
-            // Formats simples contenant "table" sans restrictions
-            (titleLower.includes("table") && titleLower.match(/\d+/)) ||
-            // BB/SB format
-            titleLower.match(/bb.*table/i) ||
-            // Position-based (BTN, SB, BB, UTG, etc.)
-            (titleLower.match(/\b(btn|sb|bb|utg|mp|co|d)\b/i) && titleLower.match(/\d+/));
+            // Tables cash avec format STRICT (ex: "NL 100" ou "PL 50")
+            (titleLower.match(/\bnl\s*\d+/i) && !titleLower.includes("nhl")) ||  // NL poker, NOT NHL
+            (titleLower.match(/\bplo\s*\d+/i)) ||
+            (titleLower.match(/\bpl\s*\d+/i)) ||  // Pot Limit
+            // Tournois poker (Hold'em, Omaha)
+            (titleLower.match(/hold.?em|omaha|tournament|tourney|spinn?/i) && 
+             titleLower.match(/\d+/)) ||
+            // Format blinds spécifique (ex: "1/2" pour 1-2 poker)
+            (titleLower.match(/\b\d+\/\d+\b/) && !titleLower.includes("explorer"))
+          );
           
           // La fenêtre est valide si le processus correspond OU si le titre correspond
           const isGGPokerWindow = isGGPokerProcess || isGGPokerTitle;
