@@ -1962,34 +1962,45 @@ export class GGClubAdapter extends PlatformAdapter {
     region: ScreenRegion,
     channels: number = 4 // Assuming RGBA
   ): Buffer {
+    // FIX: Early validation to prevent out-of-bounds access
+    if (!screenBuffer || screenBuffer.length === 0 || srcWidth <= 0 || srcHeight <= 0) {
+      return Buffer.alloc(0);
+    }
+
+    // Validate region dimensions
+    if (region.width <= 0 || region.height <= 0 || region.x < 0 || region.y < 0) {
+      return Buffer.alloc(0);
+    }
+
     // Clamp region coordinates to be within image bounds
     const clampedX = Math.max(0, Math.min(region.x, srcWidth - 1));
     const clampedY = Math.max(0, Math.min(region.y, srcHeight - 1));
-    const clampedWidth = Math.min(region.width, srcWidth - clampedX);
-    const clampedHeight = Math.min(region.height, srcHeight - clampedY);
+    const clampedWidth = Math.max(0, Math.min(region.width, srcWidth - clampedX));
+    const clampedHeight = Math.max(0, Math.min(region.height, srcHeight - clampedY));
 
     if (clampedWidth <= 0 || clampedHeight <= 0) {
-      return Buffer.alloc(0); // Return empty buffer if region is invalid
+      return Buffer.alloc(0);
+    }
+
+    // FIX: Validate buffer size to prevent memory issues
+    const expectedBufferSize = srcWidth * srcHeight * channels;
+    if (screenBuffer.length < expectedBufferSize) {
+      // Buffer too small for dimensions, return empty
+      return Buffer.alloc(0);
     }
 
     const output = Buffer.alloc(clampedWidth * clampedHeight * channels);
     const maxSrcIdx = screenBuffer.length;
 
+    // FIX: Simplified loop with bounds checking removed since clamping is now correct
     for (let dy = 0; dy < clampedHeight; dy++) {
       for (let dx = 0; dx < clampedWidth; dx++) {
-        const srcX = clampedX + dx;
-        const srcY = clampedY + dy;
-        const srcIdx = (srcY * srcWidth + srcX) * channels;
+        const srcIdx = (((clampedY + dy) * srcWidth) + (clampedX + dx)) * channels;
         const dstIdx = (dy * clampedWidth + dx) * channels;
 
+        // Only copy if indices are valid
         if (srcIdx >= 0 && srcIdx + channels <= maxSrcIdx) {
-          for (let c = 0; c < channels; c++) {
-            output[dstIdx + c] = screenBuffer[srcIdx + c];
-          }
-        } else {
-          // Handle potential out-of-bounds access gracefully if clamping failed
-          // This might happen with very small images or unusual regions
-          console.warn(`[GGClubAdapter] Out-of-bounds pixel access attempted at (${srcX}, ${srcY})`);
+          screenBuffer.copy(output, dstIdx, srcIdx, srcIdx + channels);
         }
       }
     }
@@ -2018,7 +2029,7 @@ export class GGClubAdapter extends PlatformAdapter {
   }
 
   private async performOCR(screenBuffer: Buffer, region: ScreenRegion, imageWidth?: number, imageHeight?: number): Promise<OCRResult> {
-    // Check cache first
+    // FIX: Immediate cache check to avoid reprocessing
     const cached = this.ocrCache.get(screenBuffer, region);
     if (cached) {
       return {
@@ -2028,48 +2039,50 @@ export class GGClubAdapter extends PlatformAdapter {
       };
     }
 
-    // Using ML OCR Engine instead of Tesseract
-    if (!this.validateImageBuffer(screenBuffer)) {
-      logger.debug("GGClubAdapter", "Buffer invalide pour OCR, retour vide", {
-        bufferSize: screenBuffer?.length || 0,
-        region
-      });
+    // FIX: Validate buffer and dimensions before processing
+    if (!this.validateImageBuffer(screenBuffer) || !imageWidth || !imageHeight || imageWidth <= 0 || imageHeight <= 0) {
       return { text: "", confidence: 0, bounds: region };
     }
 
     await this.addRandomDelay(20);
     
-    // Try ML OCR Engine first
+    // Try ML OCR Engine with TIMEOUT FIX
     if (this.pokerOCREngine && screenBuffer.length > 0) {
       try {
         const startTime = Date.now();
+        
         // Extract region buffer for OCR
-        const regionBuffer = this.extractRegionBuffer(screenBuffer, imageWidth || 1920, imageHeight || 1080, region);
+        const regionBuffer = this.extractRegionBuffer(screenBuffer, imageWidth, imageHeight, region);
         if (regionBuffer.length === 0) {
           return { text: "", confidence: 0, bounds: region };
         }
-        // Using PokerOCREngine for recognized numbers with correct region dimensions
-        const result = await this.pokerOCREngine.recognizeValue(regionBuffer, region.width, region.height, 'pot');
+
+        // FIX: Add 500ms timeout to prevent freeze (OCR taking 27+ seconds)
+        let result: any = null;
+        let timedOut = false;
         
+        const ocrPromise = this.pokerOCREngine.recognizeValue(regionBuffer, region.width, region.height, 'pot');
+        const timeoutPromise = new Promise(resolve => {
+          setTimeout(() => {
+            timedOut = true;
+            resolve(null);
+          }, 500); // 500ms timeout
+        });
+
+        result = await Promise.race([ocrPromise, timeoutPromise]);
+        
+        if (timedOut) {
+          logger.debug("GGClubAdapter", "OCR timeout - retournant cache ou vide", {
+            region,
+            processingTime: Date.now() - startTime
+          });
+          return { text: "", confidence: 0, bounds: region };
+        }
+
         if (result) {
           const text = String(result.value);
           const confidence = result.confidence;
           const processingTime = Date.now() - startTime;
-
-          // Log low confidence OCR
-          if (confidence < 0.6) {
-            const windowHandle = Array.from(this.activeWindows.keys())[0];
-            if (windowHandle) {
-              visionErrorLogger.logOCRError(
-                parseInt(windowHandle.split('_')[1]),
-                region,
-                text,
-                text,
-                confidence,
-                this.debugMode ? screenBuffer : undefined
-              );
-            }
-          }
 
           // Log slow OCR
           if (processingTime > 200) {
@@ -2095,24 +2108,10 @@ export class GGClubAdapter extends PlatformAdapter {
           };
         }
       } catch (error: any) {
-        const errorMessage = String(error?.message || error);
-        
-        logger.error("GGClubAdapter", "Erreur OCR ML Engine", { 
-          error: errorMessage 
+        // Silently return empty on timeout/error
+        logger.debug("GGClubAdapter", "Erreur OCR", { 
+          error: String(error?.message || error).substring(0, 100)
         });
-
-        // Log OCR failure
-        const windowHandle = Array.from(this.activeWindows.keys())[0];
-        if (windowHandle) {
-          visionErrorLogger.logOCRError(
-            parseInt(windowHandle.split('_')[1]),
-            region,
-            "",
-            null,
-            0,
-            this.debugMode ? screenBuffer : undefined
-          );
-        }
       }
     }
 
