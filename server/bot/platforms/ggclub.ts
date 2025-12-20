@@ -301,21 +301,10 @@ export class GGClubAdapter extends PlatformAdapter {
   }
 
   private async initializeTesseract(): Promise<void> {
-    try {
-      if (Tesseract && Tesseract.createWorker) {
-        this.tesseractWorker = await Tesseract.createWorker('eng', 1, {
-          errorHandler: (err: any) => {
-            logger.error("GGClubAdapter", "Tesseract worker error", { error: String(err) });
-          },
-        });
-        console.log("Tesseract OCR worker initialized");
-      } else {
-        console.warn("Tesseract not available, OCR will be limited");
-      }
-    } catch (error) {
-      console.error("Failed to initialize Tesseract:", error);
-      this.tesseractWorker = null;
-    }
+    // Tesseract.js is DISABLED due to repeated crashes with "Error attempting to read image"
+    // Using ML OCR Engine (PokerOCREngine) instead which is more stable
+    logger.info("GGClubAdapter", "Tesseract.js disabled - using ML OCR Engine");
+    this.tesseractWorker = null;
   }
   
   private async reinitializeTesseractIfNeeded(): Promise<void> {
@@ -1418,94 +1407,70 @@ export class GGClubAdapter extends PlatformAdapter {
   }
 
   async detectPot(windowHandle: number): Promise<number> {
-    const screenBuffer = await this.captureScreen(windowHandle);
-    if (screenBuffer.length === 0) return 0; // Handle empty buffer
+    try {
+      const screenBuffer = await this.captureScreen(windowHandle);
+      if (screenBuffer.length === 0) return 0; // Handle empty buffer
 
-    const region = this.screenLayout.potRegion;
-    const window = this.activeWindows.get(`ggclub_${windowHandle}`);
-    const imageWidth = window?.width || 880;
-    const imageHeight = window?.height || 600;
+      // Guard: validate buffer before processing
+      if (!this.validateImageBuffer(screenBuffer)) {
+        return 0;
+      }
 
-    let detectedPotValue = 0;
+      const region = this.screenLayout.potRegion;
+      const window = this.activeWindows.get(`ggclub_${windowHandle}`);
+      if (!window) return 0;
+      
+      const imageWidth = window.width || 880;
+      const imageHeight = window.height || 600;
 
-    // Ensure ML OCR is initialized before use
-    if (this.mlInitPromise) {
-      await this.mlInitPromise;
-    }
-
-    // Pipeline OCR: ML OCR → Tesseract
-    const pokerOCREngine = await getPokerOCREngine({
-      useMLPrimary: true,
-      useTesseractFallback: true,
-      confidenceThreshold: 0.75,
-      collectTrainingData: true,
-    });
-
-    let ocrMethod = 'none';
-
-    // 1. Try ML OCR first
-    if (pokerOCREngine) {
-      try {
-        const potBuffer = this.extractRegionBuffer(screenBuffer, imageWidth, imageHeight, region);
-        const potResult = await pokerOCREngine.recognizeValue(
-          potBuffer,
-          region.width,
-          region.height,
-          'pot'
-        );
-
-        if (potResult.confidence > 0.5) {
-          const parsed = this.parseAmount(potResult.text);
-          if (parsed > 0) {
-            detectedPotValue = parsed;
-            ocrMethod = potResult.method || 'ml';
+      // Use ML OCR Engine (better than Tesseract)
+      if (this.pokerOCREngine) {
+        try {
+          const potBuffer = this.extractRegionBuffer(screenBuffer, imageWidth, imageHeight, region);
+          if (!this.validateImageBuffer(potBuffer)) {
+            return 0;
           }
+          
+          const potResult = await this.pokerOCREngine.recognizeValue(
+            potBuffer,
+            region.width,
+            region.height,
+            'pot'
+          );
+
+          if (potResult.confidence > 0.5) {
+            const parsed = this.parseAmount(potResult.rawText);
+            if (parsed > 0) {
+              logger.debug("GGClubAdapter", "Pot detected via ML", { value: parsed, confidence: potResult.confidence });
+              return parsed;
+            }
+          }
+        } catch (error) {
+          logger.debug("GGClubAdapter", "ML OCR pot detection failed", { error: String(error) });
         }
-      } catch (error) {
-        console.warn('[GGClub] ML OCR failed, falling back to Tesseract:', error);
       }
+
+      // Fallback: return 0 if detection fails (Tesseract disabled - causes crashes)
+      return 0;
+    } catch (error) {
+      logger.error("GGClubAdapter", "Error in detectPot", { error: String(error) });
+      return 0;
     }
-
-    // 2. Fallback to Tesseract if ML OCR failed or didn't yield a valid result
-    if (detectedPotValue === 0) {
-      const tesseractResult = await this.performOCR(screenBuffer, region, imageWidth, imageHeight); // Pass dimensions
-      const parsed = this.parseAmount(tesseractResult.text);
-      if (parsed > 0 && tesseractResult.confidence > 0.4) {
-        detectedPotValue = parsed;
-        ocrMethod = 'tesseract';
-      }
-    }
-
-    // Validation and logging
-    if (detectedPotValue > 0) {
-      console.log(`[GGClub] Pot detected: ${detectedPotValue} (method: ${ocrMethod})`);
-      // Update cached game state if available
-      if (this.lastGameState) {
-        this.lastGameState.potSize = detectedPotValue;
-      }
-      return detectedPotValue;
-    }
-
-    // Level 3: OCR alternative with different preprocessing if still no detection
-    console.warn("[GGClubAdapter] OCR pot failed with standard methods, trying alternative preprocessing");
-    const alternativePreprocessingResult = await this.performOCRWithAlternativePreprocessing(screenBuffer, region, window);
-    const alternativePotValue = this.parseAmount(alternativePreprocessingResult.text);
-
-    if (alternativePotValue > 0) {
-      console.log(`[GGClub] Pot detected with alt preprocessing: ${alternativePotValue}`);
-      if (this.lastGameState) {
-        this.lastGameState.potSize = alternativePotValue;
-      }
-      return alternativePotValue;
-    }
-
-    return 0; // Return 0 if no detection was successful
   }
 
   private async performOCRWithAlternativePreprocessing(screenBuffer: Buffer, region: ScreenRegion, window: TableWindow | undefined): Promise<OCRResult> {
-    const tableWindow = window || this.activeWindows.get(`ggclub_${windowHandle}`); // Ensure window is available
-    const imageWidth = tableWindow?.width || 880;
-    const imageHeight = tableWindow?.height || 600;
+    // Guard: window is provided (windowHandle removed - was causing undefined reference)
+    if (!window) {
+      return { text: '', confidence: 0, method: 'none' };
+    }
+    const imageWidth = window.width || 880;
+    const imageHeight = window.height || 600;
+
+    // Guard: validate buffer before preprocessing
+    if (!this.validateImageBuffer(screenBuffer)) {
+      logger.warning("GGClubAdapter", "Image buffer invalid for OCR", { size: screenBuffer.length });
+      return { text: '', confidence: 0, method: 'none' };
+    }
 
     const preprocessed = preprocessForOCR(
       screenBuffer,
